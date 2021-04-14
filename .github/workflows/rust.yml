@@ -21,6 +21,7 @@ jobs:
         profile: minimal
         toolchain: nightly
         override: true
+    - run: rustup component add rust-src
     - name: Build
       run: cargo build --verbose
     - name: Run tests
