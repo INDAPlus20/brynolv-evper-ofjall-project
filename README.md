@@ -88,3 +88,33 @@ We believe that this will reach and exceed the level of difficulty needed, as ex
 This can be ascertained by reviewing this specification and referencing the appropriate pages on [the osdev wiki](https://wiki.osdev.org).
 
 The difficulty of this project is increased by some team members not being comfortable with the language used (`Rust`).
+
+## Building
+
+### Dependencies
+
+These tools need to be installed:
+
+- `llvm-tools`
+- - Installed by running `rustup component add llvm-tools-preview`
+- `bootimage`
+- - Installed by running `cargo install bootimage`
+
+### Compiling
+
+To build the project, run `cargo bootimage`
+
+### Running Debug kernel
+
+To run the project, `qemu-system-x86_64` must be installed.
+
+To run the project, run the command `qemu-system-x86_64 .\target\x86_64-unknown-caesarsallad\de\bootimage-brynolv-evper-ofjall-project.bin`.
+
+### Debugging Debug kernel
+
+To debug the project, `qemu-system-x86_64` and `gdb` must be installed.
+
+To debug the project, run the command `qemu-system-x86_64 .\target\x86_64-unknown-caesarsallad\de\bootimage-brynolv-evper-ofjall-project.bin -s`.
+If you want `qemu` to pause execution immediately, add the flag `-S`.
+
+In another terminal, start `gdb` and run the command `target remote tcp::1234`. `qemu` will then pause execution, and debugging via `gdb` can proceed.
