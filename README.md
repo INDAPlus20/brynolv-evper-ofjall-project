@@ -50,7 +50,7 @@ Pull requests should be named in the present tense - e.g. "Fixes bla bla"
 ### Issues
 
 Issue titles should either be a short description of an issue (not the Github-issue kind) or bug,
-or be named in the future tense - e.g. "Keyboard not registered" or "Fix keyboard not being registrered"
+or be named in the imperative mood - e.g. "Keyboard not registered" or "Fix keyboard not being registrered"
 
 ## Feasibility
 
