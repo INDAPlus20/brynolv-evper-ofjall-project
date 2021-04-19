@@ -91,30 +91,40 @@ The difficulty of this project is increased by some team members not being comfo
 
 ## Building
 
+Building the project uses a Python script called `build.py`, which can be found in the root of the project.
+How to execute Python scripts can vary between systems. This section will use the syntax `./build.py`, but many systems require `python build.py` or `python3 build.py`. Note that `build.py` cannot be run with Python 2.
+
+`build.py` has a help screen available with `./build.py help`.
+
 ### Dependencies
 
-These tools need to be installed:
+`build.py` requires the following dependencies:
 
-- `llvm-tools`
-- - Installed by running `rustup component add llvm-tools-preview`
-- `bootimage`
-- - Installed by running `cargo install bootimage`
+- Python 3
+- Cargo
+- - Is a part of the Rust installation available from (the rust website)[https://www.rust-lang.org/tools/install].
+- The `rust-src` component
+- - Intalled with `rustup component add rust-src`
+- QEMU (to run the project)
+- - Can be downloaded from [the QEMU website](https://www.qemu.org/download/)
+
+Both `cargo` and `qemu-system-x86_64` (part of the QEMU installation) must be available in `PATH`.
 
 ### Compiling
 
-To build the project, run `cargo bootimage`
+Simply running `./build.py` will compile the project.
+Running `./build.py release` will pass the `--release` flag to `cargo`, enabling optimizations
+and disabling debug information.
 
-### Running Debug kernel
+### Running
 
-To run the project, `qemu-system-x86_64` must be installed.
+Running `./build.py run` will first compile the program, then run the compiled disk image in QEMU.
+Note that this requires QEMU to be installed. `release` can be added to build the kernel in release mode.
 
-To run the project, run the command `qemu-system-x86_64 .\target\x86_64-unknown-caesarsallad\debug\bootimage-brynolv-evper-ofjall-project.bin`.
+### Debugging
 
-### Debugging Debug kernel
+Running `./build.py run gdb` will compile and run the project in QEMU. QEMU will then pause execution and wait for a debugger to connect. Any debugger that supports the GDB Remote Protocol can be used.
 
-To debug the project, `qemu-system-x86_64` and `gdb` must be installed.
+The debugger suggested is GDB. GDB can be found in many package repositories, and can also be compiled and installed [from source](https://www.gnu.org/software/gdb/download/).
 
-To debug the project, run the command `qemu-system-x86_64 .\target\x86_64-unknown-caesarsallad\debug\bootimage-brynolv-evper-ofjall-project.bin -s`.
-If you want `qemu` to pause execution immediately, add the flag `-S`.
-
-In another terminal, start `gdb` and run the command `target remote tcp::1234`. `qemu` will then pause execution, and debugging via `gdb` can proceed.
+A script for GDB is supplied in the root of the project, called `debug.gdb`. Running `gdb -x debug.gdb` **while a QEMU session is running** will start GDB and continue execution until the call to `_start()`, the entry point of the kernel.
