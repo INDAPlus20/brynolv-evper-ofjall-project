@@ -128,3 +128,4 @@ Running `./build.py run gdb` will compile and run the project in QEMU. QEMU will
 The debugger suggested is GDB. GDB can be found in many package repositories, and can also be compiled and installed [from source](https://www.gnu.org/software/gdb/download/).
 
 A script for GDB is supplied in the root of the project, called `debug.gdb`. Running `gdb -x debug.gdb` **while a QEMU session is running** will start GDB and continue execution until the call to `_start()`, the entry point of the kernel.
+Note that `debug.gdb` loads the debug symbols from the `debug` build, and if QEMU is running a release build, the symbols loaded will not be correct. As such, `debug.gdb` should never be run with a QEMU session started by `./build run gdb release`.
