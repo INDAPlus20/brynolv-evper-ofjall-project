@@ -4,8 +4,6 @@ const DEFAULT_FONT: [[[u8; 8]; 16]; 128] = unsafe {
     core::mem::transmute(*include_bytes!("vgafont.bin"))
 };
 
-static NONDANGLINGPOINTERMAKER: () = ();
-
 static mut PRINTER: Printer = unsafe { Printer::uninitialized() };
 
 pub struct Printer {
