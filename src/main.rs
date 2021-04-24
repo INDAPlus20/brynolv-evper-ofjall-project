@@ -29,7 +29,7 @@ fn panic_handler(info: &PanicInfo) -> ! {
     match info.message() {
         Some(message) => {
             println!("{}: Panic at '{}'", loc, message);
-        },
+        }
         None => {
             println!("{}: Panic", loc);
         }
