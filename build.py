@@ -75,12 +75,12 @@ if gdb and not run:
 # For this command to succeed, this script needs to have been called from
 # the project root directory.
 # Else, the return code should be non-zero.
-# `universal_newlines` gives us text instead of raw bytes
-result = subprocess.run(["cargo", "metadata"], stdout=subprocess.PIPE, universal_newlines=True)
+result = subprocess.run(["cargo", "metadata"], stdout=subprocess.PIPE)
 if result.returncode != 0:
     # We only captured stdin, so stderr should have been printed
     exit(1)
-metadata = json.loads(result.stdout)
+# result.stdout is a byte array, so we need to decode it using UTF-8
+metadata = json.loads(result.stdout.decode("utf-8"))
 
 # Method to find `bootloader` source path adapted from
 # https://docs.rs/bootloader-locator/0.0.4/src/bootloader_locator/lib.rs.html#11-40
@@ -127,7 +127,7 @@ if not debug:
 result = subprocess.run(build_command)
 if result.returncode != 0:
     exit(1)
-
+    
 
 # Second, create the bootable disk image
 # See https://docs.rs/bootloader/0.10.1/bootloader/ for more information
