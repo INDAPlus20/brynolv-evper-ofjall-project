@@ -25,6 +25,9 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
 
         printer::initialize(core::ptr::read(boot_info.framebuffer.as_ref().unwrap()));
         printer::clear();
+
+        x86_64::instructions::interrupts::enable();
+        ps2::initialize();
     }
     println!("Hello, World!");
 
