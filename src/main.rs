@@ -11,6 +11,7 @@ mod idt;
 mod pic;
 mod ps2;
 mod ps2_keyboard;
+mod gdt;
 
 use core::panic::PanicInfo;
 
@@ -20,6 +21,8 @@ use bootloader::BootInfo;
 pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
     // Safety: this is safe
     unsafe {
+        gdt::initialize();
+
         printer::initialize(core::ptr::read(boot_info.framebuffer.as_ref().unwrap()));
         printer::clear();
     }
