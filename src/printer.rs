@@ -6,6 +6,9 @@ type Glyph = [[u8; 8]; 16];
 /// Monospace pixelfont made by @Elekrisk
 const DEFAULT_FONT: [Glyph; 128] = unsafe { core::mem::transmute(*include_bytes!("vgafont.bin")) };
 
+/// Zeroed glyph
+const EMPTY_GLYPH: Glyph = [[0; 8]; 16];
+
 static mut PRINTER: Printer = unsafe { Printer::uninitialized() };
 
 pub struct Printer {
@@ -38,6 +41,33 @@ impl Printer {
         }
     }
 
+    /// Replaces glyph at position with provided glyph
+    unsafe fn replace_glyph_at_position(&mut self, glyph: Glyph, position: (usize, usize)) {
+        let (_, _, _, bytes_per_pixel, buffer) = self.get_buffer_info();
+        for y in 0..16 {
+            for x in 0..8 {
+                let color = glyph[y][x];
+                for b in 0..bytes_per_pixel {
+                    buffer[buffer_offset_to_glyph_position(x, y, position) + b] = color;
+                }
+            }
+        }
+    }
+
+    /// Gets the glyph at position
+    unsafe fn get_glyph_at_position(&mut self, position: (usize, usize)) -> Glyph {
+        let mut glyph: Glyph = EMPTY_GLYPH;
+        let (_, _, _, _, buffer) = self.get_buffer_info();
+        for y in 0..16 {
+            for x in 0..8 {
+                // Since it's all gray-scale, no need to check the individual bytes.
+                // TODO: Actually check individual bytes if we start doing non gray-scale.
+                glyph[y][x] = buffer[buffer_offset_to_glyph_position(x, y, position)];
+            }
+        }
+        return glyph;
+    }
+
     /// Prints a single ASCII character at the current cursor position.
     fn print_char(&mut self, char: char) {
         let glyph = self.font[char as usize];
@@ -49,17 +79,7 @@ impl Printer {
             }
             other if other < ' ' || other == '\x7F' => {}
             _ => {
-                let (_, _, stride, bytes_per_pixel, buffer) = self.get_buffer_info();
-                for y in 0..16 {
-                    for x in 0..8 {
-                        let color = glyph[y][x];
-                        for b in 0..bytes_per_pixel {
-                            buffer[((y + cursor_y * 16) * stride + (x + cursor_x * 8))
-                                * bytes_per_pixel
-                                + b] = color;
-                        }
-                    }
-                }
+                unsafe { self.replace_glyph_at_position(glyph, (cursor_x, cursor_y)) }
                 let chars_per_line = self.framebuffer.info().horizontal_resolution / 8;
                 cursor_x += 1;
                 if cursor_x >= chars_per_line {
@@ -78,6 +98,7 @@ impl Printer {
     }
 
     /// Scrolls down the screen one text row.
+    ///
     /// TODO: remember offscreen lines for later retrival.
     fn scroll_down(&mut self) {
         let (res_x, res_y, stride, bytes_per_pixel, buffer) = self.get_buffer_info();
@@ -119,6 +140,26 @@ impl core::fmt::Write for Printer {
     }
 }
 
+/// The offset (index) of the buffer to get to the glyph at position.
+///
+/// Example:
+/// ```
+/// let position = (pos_x,pos_y);
+/// for y in 0..16 {
+///    for x in 0..8 {
+///        let color = /*...*/;
+///        for b in 0..bytes_per_pixel {
+///            buffer[buffer_offset_to_glyph_position(x, y, position)+b] = color;
+///        }
+///    }
+/// }
+/// ```
+unsafe fn buffer_offset_to_glyph_position(x: usize, y: usize, position: (usize, usize)) -> usize {
+    let (_, _, stride, bytes_per_pixel, _) = PRINTER.get_buffer_info();
+    let (pos_x, pos_y) = position;
+    ((y + pos_y * 16) * stride + (x + pos_x * 8)) * bytes_per_pixel
+}
+
 /// ## Safety
 /// Framebuffer must be a valid framebuffer.
 /// Call this first.
@@ -134,7 +175,7 @@ pub unsafe fn initialize(framebuffer: FrameBuffer) {
 /// Clears the screen by setting every byte in the buffer to 0 and resets the cursor.
 pub unsafe fn clear() {
     if !PRINTER.initialized {
-        panic!("Printer not initialized!");
+        panic!("PRINTER not initialized!");
     }
     PRINTER.clear();
     PRINTER.cursor = (0, 0);
@@ -148,7 +189,7 @@ pub unsafe fn clear() {
 /// Prints the input string (assuming ASCII)
 pub unsafe fn print_str(string: &str) {
     if !PRINTER.initialized {
-        panic!("Printer not initialized!");
+        panic!("PRINTER not initialized!");
     }
     for char in string.chars() {
         PRINTER.print_char(char);
@@ -156,10 +197,11 @@ pub unsafe fn print_str(string: &str) {
 }
 
 /// Scrolls entire screen down one text row.
+///
 /// **WARNING** rows going offscreen are gone from memory.
 pub unsafe fn scroll_down() {
     if !PRINTER.initialized {
-        panic!("Printer not initialized!");
+        panic!("PRINTER not initialized!");
     }
     PRINTER.scroll_down();
     PRINTER.cursor.1 -= 1;
