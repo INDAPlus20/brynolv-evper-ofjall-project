@@ -2,10 +2,15 @@
 #![no_main]
 #![feature(const_fn_transmute)]
 #![feature(panic_info_message)]
+#![feature(abi_x86_interrupt)]
 
 extern crate rlibc;
 
 mod printer;
+mod idt;
+mod pic;
+mod ps2;
+mod ps2_keyboard;
 
 use core::panic::PanicInfo;
 
