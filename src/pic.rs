@@ -14,6 +14,8 @@ const PIC2_DATA: u8 = PIC2 + 1;
 /// End of interupt
 const PIC_EOI: u8 = 0x20;
 
+
+/// Sends end of interrupt
 pub unsafe fn send_eoi(irq: u8) {
     if irq >= 8 {
         PortWrite::write_to_port(PIC2_COMMAND as u16, PIC_EOI);
@@ -21,6 +23,8 @@ pub unsafe fn send_eoi(irq: u8) {
     PortWrite::write_to_port(PIC1_COMMAND as u16, PIC_EOI);
 }
 
+
+/// Initializes the PICs and tells them to ignore all interupts.
 pub unsafe fn initialize() {
     const MASTER_OFFSET: u8 = 0x20;
     const SLAVE_OFFSET: u8 = 0x28;
@@ -58,6 +62,8 @@ pub unsafe fn initialize() {
     pic2_data.write(0xFF); //a2);
 }
 
+
+/// Enable interrupt on `irq`
 pub unsafe fn enable_interrupt(irq: u8) {
     let mut irq = irq; // Wait, this is legal??
     let p_val;
@@ -73,6 +79,7 @@ pub unsafe fn enable_interrupt(irq: u8) {
     port.write(val);
 }
 
+/// Disable interrupt on `irq`
 pub unsafe fn disable_interrupt(irq: u8) {
     let mut irq = irq;
     let p_val;
