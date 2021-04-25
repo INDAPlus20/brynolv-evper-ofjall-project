@@ -1,5 +1,4 @@
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
-use crate::println;
 
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 

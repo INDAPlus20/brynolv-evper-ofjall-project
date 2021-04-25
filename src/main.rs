@@ -6,6 +6,7 @@
 
 extern crate rlibc;
 
+#[macro_use]
 mod printer;
 mod idt;
 mod pic;
@@ -16,16 +17,19 @@ mod gdt;
 use core::panic::PanicInfo;
 
 use bootloader::BootInfo;
+use gdt::initialize;
 
 #[no_mangle]
 pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
     // Safety: this is safe
     unsafe {
         gdt::initialize();
+        idt::initialize();
 
         printer::initialize(core::ptr::read(boot_info.framebuffer.as_ref().unwrap()));
         printer::clear();
 
+        pic::initialize();
         x86_64::instructions::interrupts::enable();
         ps2::initialize();
     }
