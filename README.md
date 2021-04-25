@@ -104,7 +104,9 @@ How to execute Python scripts can vary between systems. This section will use th
 - Cargo
 - - Is a part of the Rust installation available from (the rust website)[https://www.rust-lang.org/tools/install].
 - The `rust-src` component
-- - Intalled with `rustup component add rust-src`
+- - Installed with `rustup component add rust-src`
+- The `llvm-tools` component
+- - Installed with `rustup component add llvm-tools-preview`
 - QEMU (to run the project)
 - - Can be downloaded from [the QEMU website](https://www.qemu.org/download/)
 
