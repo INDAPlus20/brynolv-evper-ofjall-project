@@ -48,10 +48,10 @@ impl Driver {
         }
 
         // Set IRQ1 handler
-        crate::idt::register_isr(0x20 + 1, irq);
+        crate::idt::register_irq(0x20 + 1, irq);
 
         // Enable IRQ1 in the PIC
-        crate::pic::enable_irq(1);
+        crate::pic::enable_interrupt(1);
         // Enable first port interrupt (IRQ1)
         let mut config = self.get_config();
         config |= 0b1; // Sets bit 0, which is first port IRQ enable
