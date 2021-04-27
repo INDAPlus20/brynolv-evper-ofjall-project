@@ -3,6 +3,10 @@
 #![feature(const_fn_transmute)]
 #![feature(panic_info_message)]
 #![feature(abi_x86_interrupt)]
+#![feature(maybe_uninit_uninit_array)]
+#![feature(maybe_uninit_extra)]
+#![feature(maybe_uninit_ref)]
+#![feature(non_ascii_idents)]
 
 extern crate rlibc;
 
@@ -58,6 +62,7 @@ fn initialize(boot_info: &BootInfo) {
             pic::initialize();
             x86_64::instructions::interrupts::enable();
             ps2::initialize();
+            ps2_keyboard::initialize();
         }
     }
 }
