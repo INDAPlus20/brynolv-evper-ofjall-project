@@ -32,6 +32,7 @@ impl Driver {
 
         let mut config = self.get_config();
         config &= !0b00000011; // Clears bits 0 and 1, which are first/second port IRQs enable
+        config |= 1 << 6; // Translation from scancode set 2 to set 1
         self.set_config(config);
 
         // Issue self test. 0x55 is success.
@@ -48,7 +49,7 @@ impl Driver {
         }
 
         // Set IRQ1 handler
-        crate::idt::register_irq(0x20 + 1, irq);
+        crate::idt::register_irq(0x20 + 1, default_handler);
 
         // Enable IRQ1 in the PIC
         crate::pic::enable_interrupt(1);
@@ -102,8 +103,8 @@ pub unsafe fn get_byte() -> u8 {
     DRIVER.read_data()
 }
 
-extern "x86-interrupt" fn irq(stack_frame: InterruptStackFrame) {
-    println!("Interrupt");
+extern "x86-interrupt" fn default_handler(stack_frame: InterruptStackFrame) {
+    println!("Default handler");
 
     unsafe { DRIVER.read_data(); }
 
