@@ -2,10 +2,12 @@ use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, Pag
 
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
+// Initializes the Interrupt Descriptor Table and assigns interrupt handlers for the default interrupts coming the CPU.
+// This needs to be called before anything else in the module
 pub fn initialize() {
     let idt = unsafe { &mut IDT };
 
-    // Assign interrupt handlers
+    // Assign interrupt handlers for the default interrupts coming from the CPU
     idt.divide_error.set_handler_fn(default_handler);
     idt.debug.set_handler_fn(default_handler);
     idt.non_maskable_interrupt.set_handler_fn(default_handler);
@@ -27,11 +29,16 @@ pub fn initialize() {
     idt.virtualization.set_handler_fn(default_handler);
     idt.security_exception.set_handler_fn(default_handler_with_error_code);
 
+    // Sets so the CPU uses this IDT
     idt.load();
 }
 
-// Note: IRQ's start at index 32 (0x20) 
+// Registers an interrupt handler
+// Note: IRQ's start at index 32 (0x20)
 pub fn register_irq(irq: u8, func: extern "x86-interrupt" fn(InterruptStackFrame)) {
+    if irq < 0x20 {
+        panic!("Custom IRQ's needs to use index 32 or above (0x20)");
+    }
     let idt = unsafe { &mut IDT };
     idt[irq as usize].set_handler_fn(func);
 }
