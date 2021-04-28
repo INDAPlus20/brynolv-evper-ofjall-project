@@ -2,8 +2,8 @@ use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, Pag
 
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
-// Initializes the Interrupt Descriptor Table and assigns interrupt handlers for the default interrupts coming the CPU.
-// This needs to be called before anything else in the module
+/// Initializes the Interrupt Descriptor Table and assigns interrupt handlers for the default interrupts coming the CPU.
+/// This needs to be called before anything else in the module
 pub fn initialize() {
     let idt = unsafe { &mut IDT };
 
@@ -17,24 +17,30 @@ pub fn initialize() {
     idt.invalid_opcode.set_handler_fn(default_handler);
     idt.device_not_available.set_handler_fn(default_handler);
     idt.double_fault.set_handler_fn(double_fault_handler);
-    idt.invalid_tss.set_handler_fn(default_handler_with_error_code);
-    idt.segment_not_present.set_handler_fn(default_handler_with_error_code);
-    idt.stack_segment_fault.set_handler_fn(default_handler_with_error_code);
-    idt.general_protection_fault.set_handler_fn(default_handler_with_error_code);
+    idt.invalid_tss
+        .set_handler_fn(default_handler_with_error_code);
+    idt.segment_not_present
+        .set_handler_fn(default_handler_with_error_code);
+    idt.stack_segment_fault
+        .set_handler_fn(default_handler_with_error_code);
+    idt.general_protection_fault
+        .set_handler_fn(default_handler_with_error_code);
     idt.page_fault.set_handler_fn(page_fault_handler);
     idt.x87_floating_point.set_handler_fn(default_handler);
-    idt.alignment_check.set_handler_fn(default_handler_with_error_code);
+    idt.alignment_check
+        .set_handler_fn(default_handler_with_error_code);
     idt.machine_check.set_handler_fn(machine_check_handler);
     idt.simd_floating_point.set_handler_fn(default_handler);
     idt.virtualization.set_handler_fn(default_handler);
-    idt.security_exception.set_handler_fn(default_handler_with_error_code);
+    idt.security_exception
+        .set_handler_fn(default_handler_with_error_code);
 
     // Sets so the CPU uses this IDT
     idt.load();
 }
 
-// Registers an interrupt handler
-// Note: IRQ's start at index 32 (0x20)
+/// Registers an interrupt handler
+/// *Note*: IRQ's start at index 32 (0x20)
 pub fn register_irq(irq: u8, func: extern "x86-interrupt" fn(InterruptStackFrame)) {
     if irq < 0x20 {
         panic!("Custom IRQ's needs to use index 32 or above (0x20)");
@@ -58,7 +64,7 @@ extern "x86-interrupt" fn breakpoint_handler(f: InterruptStackFrame) {
 
 extern "x86-interrupt" fn double_fault_handler(f: InterruptStackFrame, code: u64) -> ! {
     println!("{} {:#?}\n", code, f);
-    loop{}
+    loop {}
 }
 
 extern "x86-interrupt" fn page_fault_handler(f: InterruptStackFrame, code: PageFaultErrorCode) {
@@ -67,5 +73,5 @@ extern "x86-interrupt" fn page_fault_handler(f: InterruptStackFrame, code: PageF
 
 extern "x86-interrupt" fn machine_check_handler(f: InterruptStackFrame) -> ! {
     println!("{:#?}\n", f);
-    loop{}
+    loop {}
 }
