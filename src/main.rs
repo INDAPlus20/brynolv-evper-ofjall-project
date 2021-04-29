@@ -3,6 +3,10 @@
 #![feature(const_fn_transmute)]
 #![feature(panic_info_message)]
 #![feature(abi_x86_interrupt)]
+#![feature(maybe_uninit_uninit_array)]
+#![feature(maybe_uninit_extra)]
+#![feature(maybe_uninit_ref)]
+#![feature(non_ascii_idents)]
 
 extern crate rlibc;
 
@@ -13,10 +17,13 @@ mod pic;
 mod ps2;
 mod ps2_keyboard;
 mod gdt;
+mod svec;
 
 use core::{panic::PanicInfo, sync::atomic::{AtomicBool, Ordering}};
 
 use bootloader::BootInfo;
+
+use crate::ps2_keyboard::KeyCode;
 
 #[no_mangle]
 pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
@@ -25,7 +32,14 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
 
     println!("Hello, World!");
 
-    loop {}
+    loop {
+        let event = ps2_keyboard::get_key_event();
+        if let Some(char) = event.char {
+            print!("{}", char);
+        } else if event.keycode == KeyCode::Backspace {
+            print!("\x08");
+        }
+    }
 }
 
 /// Initializes all modules.
@@ -58,6 +72,7 @@ fn initialize(boot_info: &BootInfo) {
             pic::initialize();
             x86_64::instructions::interrupts::enable();
             ps2::initialize();
+            ps2_keyboard::initialize();
         }
     }
 }
