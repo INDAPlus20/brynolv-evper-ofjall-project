@@ -1,5 +1,7 @@
 use bootloader::boot_info::FrameBuffer;
 
+use crate::svec::SVec;
+
 /// A glyph or character is 8*16 pixels
 type Glyph = [[u8; 8]; 16];
 
@@ -9,6 +11,26 @@ const DEFAULT_FONT: [Glyph; 128] = unsafe { core::mem::transmute(*include_bytes!
 /// Zeroed glyph
 const EMPTY_GLYPH: Glyph = [[0; 8]; 16];
 
+/// Cursor
+const CURSOR_GLYPH: Glyph = [
+    [0; 8],
+    [0; 8],
+    [0; 8],
+    [0; 8],
+    [0; 8],
+    [0; 8],
+    [0; 8],
+    [0; 8],
+    [0; 8],
+    [0; 8],
+    [0; 8],
+    [0; 8],
+    [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00],
+    [0; 8],
+    [0; 8],
+    [0; 8],
+];
+
 static mut PRINTER: Printer = unsafe { Printer::uninitialized() };
 
 pub struct Printer {
@@ -16,6 +38,7 @@ pub struct Printer {
     cursor: (usize, usize),
     font: &'static [Glyph; 128],
     initialized: bool,
+    line_lengths: SVec<usize, 128>
 }
 
 impl Printer {
@@ -25,6 +48,7 @@ impl Printer {
             cursor: (0, 0),
             font: &DEFAULT_FONT,
             initialized: false,
+            line_lengths: SVec::new()
         }
     }
 
@@ -39,6 +63,8 @@ impl Printer {
                 }
             }
         }
+        self.line_lengths = SVec::new();
+        self.cursor = (0, 0);
     }
 
     /// Replaces glyph at position with provided glyph
@@ -69,20 +95,51 @@ impl Printer {
     }
 
     /// Prints a single ASCII character at the current cursor position.
-    fn print_char(&mut self, char: char) {
+    fn print_char(&mut self, mut char: char) {
+        if char as u32 > 0x7F {
+            char = 0x7F as char;
+        }
         let glyph = self.font[char as usize];
         let (mut cursor_x, mut cursor_y) = self.cursor;
         match char {
             '\n' => {
+                unsafe {
+                    self.replace_glyph_at_position(EMPTY_GLYPH, (cursor_x, cursor_y));
+                }
+                self.line_lengths.push(cursor_x);
                 cursor_y += 1;
                 cursor_x = 0;
             }
-            other if other < ' ' || other == '\x7F' => {}
+            '\x08' => {
+                unsafe {
+                    self.replace_glyph_at_position(EMPTY_GLYPH, (cursor_x, cursor_y));
+                }
+                if cursor_x > 0 {
+                    cursor_x -= 1;
+                    unsafe {
+                        self.replace_glyph_at_position(EMPTY_GLYPH, (cursor_x, cursor_y));
+                    }
+                } else {
+                    if cursor_y > 0 {
+                        cursor_y -= 1;
+                        cursor_x = self.line_lengths.remove(cursor_y);
+                        let chars_per_line = self.framebuffer.info().horizontal_resolution / 8;
+                        if cursor_x >= chars_per_line {
+                            cursor_x -= 1;
+                            unsafe {
+                                self.replace_glyph_at_position(EMPTY_GLYPH, (cursor_x, cursor_y));
+                            }
+                        }
+                    }
+                }
+            }
+            other if other < ' ' => {}
             _ => {
                 unsafe { self.replace_glyph_at_position(glyph, (cursor_x, cursor_y)) }
                 let chars_per_line = self.framebuffer.info().horizontal_resolution / 8;
                 cursor_x += 1;
                 if cursor_x >= chars_per_line {
+                    self.line_lengths.push(cursor_x);
                     cursor_y += 1;
                     cursor_x = 0;
                 }
@@ -94,6 +151,9 @@ impl Printer {
             cursor_y -= 1;
         }
 
+        unsafe {
+            self.replace_glyph_at_position(CURSOR_GLYPH, (cursor_x, cursor_y));
+        }
         self.cursor = (cursor_x, cursor_y);
     }
 
@@ -117,6 +177,7 @@ impl Printer {
                 }
             }
         }
+        self.line_lengths.remove(0);
     }
 
     /// Returns (x, y, stride, bytes_per_pixel, buffer)
@@ -178,7 +239,6 @@ pub unsafe fn clear() {
         panic!("PRINTER not initialized!");
     }
     PRINTER.clear();
-    PRINTER.cursor = (0, 0);
 }
 
 /// Use `print!()` macro or `print_str` instead.
