@@ -1,19 +1,21 @@
-use core::{
-    mem::MaybeUninit,
-    ops::{Index, IndexMut},
-};
+use core::{mem::MaybeUninit, ops::{Index, IndexMut}, sync::atomic::{AtomicBool, Ordering}};
 
+use spin::Mutex;
 use x86_64::structures::idt::InterruptStackFrame;
+use crate::svec::SVec;
 
 pub unsafe fn initialize() {
     crate::idt::register_irq(0x20 + 1, interrupt_handler);
 }
 
-static mut DRIVER: Driver = Driver::new();
+static DRIVER: Mutex<Driver> = Mutex::new(Driver::new());
+
+static HAS_KEYEVENT_IN_BUFFER: AtomicBool = AtomicBool::new(false);
 
 struct Driver {
     state: DriverState,
     pressed_keys: [bool; 256],
+    keyevent_buffer: SVec<KeyEvent, 256>
 }
 
 impl Driver {
@@ -21,6 +23,7 @@ impl Driver {
         Self {
             state: DriverState::WaitingForNewKeypress,
             pressed_keys: [false; 256],
+            keyevent_buffer: SVec::new()
         }
     }
 
@@ -121,6 +124,7 @@ impl Driver {
             [0x1A] => KeyCode::Å,
             [0x1B] => KeyCode::Umlaut,
             [0x1C] => KeyCode::Enter,
+            [0x1D] => KeyCode::LeftControl,
             [0x1E] => KeyCode::A,
             [0x1F] => KeyCode::S,
             [0x20] => KeyCode::D,
@@ -132,9 +136,9 @@ impl Driver {
             [0x26] => KeyCode::L,
             [0x27] => KeyCode::Ö,
             [0x28] => KeyCode::Ä,
-            [0x29] => KeyCode::Apostrophe,
+            [0x29] => KeyCode::Paragraph,
             [0x2A] => KeyCode::LeftShift,
-            [0x2B] => KeyCode::LessThan,
+            [0x2B] => KeyCode::Apostrophe,
             [0x2C] => KeyCode::Z,
             [0x2D] => KeyCode::X,
             [0x2E] => KeyCode::C,
@@ -175,11 +179,12 @@ impl Driver {
             [0x51] => KeyCode::Numpad3,
             [0x52] => KeyCode::Numpad0,
             [0x53] => KeyCode::NumpadDecimal,
+            [0x56] => KeyCode::LessThan,
             [0x57] => KeyCode::F11,
             [0x58] => KeyCode::F12,
             [0xE0, 0x10] => KeyCode::PreviousTrack,
             [0xE0, 0x19] => KeyCode::NextTrack,
-            [0xE0, 0x1C] => KeyCode::Enter,
+            [0xE0, 0x1C] => KeyCode::NumpadEnter,
             [0xE0, 0x1D] => KeyCode::RightControl,
             [0xE0, 0x20] => KeyCode::Mute,
             [0xE0, 0x21] => KeyCode::Calculator,
@@ -216,8 +221,199 @@ impl Driver {
             [0xE0, 0x6C] => KeyCode::Unknown, //email
             [0xE0, 0x6D] => KeyCode::Unknown, //media select
             [0xE0, 0x2A, 0xE0, 0x37] => KeyCode::PrintScreen,
-            [0xE1, 0x1D, 0x45, 0xE1, 0x9D, 0xC5] => KeyCode::PauseBreak
+            [0xE1, 0x1D, 0x45, 0xE1, 0x9D, 0xC5] => KeyCode::PauseBreak,
+            _ => panic!("Unrecognized keycode")
         };
+
+        let held = self.is_pressed(keycode);
+
+        if keycode != KeyCode::PauseBreak {
+            self.pressed_keys[keycode as usize] = !was_released;
+        }
+
+        if !was_released {
+            let shift = self.is_pressed(KeyCode::LeftShift) || self.is_pressed(KeyCode::RightShift);
+            let ctrl = self.is_pressed(KeyCode::LeftControl) || self.is_pressed(KeyCode::RightControl);
+            let alt = self.is_pressed(KeyCode::LeftAlt);
+            let altgr = self.is_pressed(KeyCode::AltGr);
+            let meta = self.is_pressed(KeyCode::LeftMeta) || self.is_pressed(KeyCode::RightMeta);
+
+            let modifiers = Modifiers {
+                shift,
+                ctrl,
+                alt,
+                altgr,
+                meta
+            };
+
+            let char = self.translate_keycode(keycode, modifiers);
+
+            let keystate = if held { KeyState::Held } else { KeyState::Pressed };
+
+            let keyevent = KeyEvent {
+                keycode,
+                modifiers,
+                char,
+                state: keystate,
+            };
+
+            self.keyevent_buffer.push(keyevent);
+
+            HAS_KEYEVENT_IN_BUFFER.store(true, Ordering::Release);
+        }
+    }
+
+    fn translate_keycode(&self, keycode: KeyCode, modifiers: Modifiers) -> Option<char> {
+        const NONE: Modifiers = Modifiers::NONE;
+        const SHIFT: Modifiers = Modifiers::SHIFT;
+        const ALTGR: Modifiers = Modifiers::ALTGR;
+
+        Some(match (keycode, modifiers) {
+            (KeyCode::Paragraph, NONE) => '§',
+            (KeyCode::Digit1, NONE) => '1',
+            (KeyCode::Digit2, NONE) => '2',
+            (KeyCode::Digit3, NONE) => '3',
+            (KeyCode::Digit4, NONE) => '4',
+            (KeyCode::Digit5, NONE) => '5',
+            (KeyCode::Digit6, NONE) => '6',
+            (KeyCode::Digit7, NONE) => '7',
+            (KeyCode::Digit8, NONE) => '8',
+            (KeyCode::Digit9, NONE) => '9',
+            (KeyCode::Digit0, NONE) => '0',
+            (KeyCode::Plus, NONE) => '+',
+            (KeyCode::Accent, NONE) => '´',
+            (KeyCode::NumpadDivide, NONE) => '/',
+            (KeyCode::NumpadMultiply, NONE) => '*',
+            (KeyCode::NumbadSubtract, NONE) => '-',
+            (KeyCode::Tab, NONE) => '\t',
+            (KeyCode::Q, NONE) => 'q',
+            (KeyCode::W, NONE) => 'w',
+            (KeyCode::E, NONE) => 'e',
+            (KeyCode::R, NONE) => 'r',
+            (KeyCode::T, NONE) => 't',
+            (KeyCode::Y, NONE) => 'y',
+            (KeyCode::U, NONE) => 'u',
+            (KeyCode::I, NONE) => 'i',
+            (KeyCode::O, NONE) => 'o',
+            (KeyCode::P, NONE) => 'p',
+            (KeyCode::Å, NONE) => 'å',
+            (KeyCode::Umlaut, NONE) => '¨',
+            (KeyCode::Enter, NONE) => '\n',
+            (KeyCode::Numpad7, NONE) => '7',
+            (KeyCode::Numpad8, NONE) => '8',
+            (KeyCode::Numpad9, NONE) => '9',
+            (KeyCode::NumbadAdd, NONE) => '+',
+            (KeyCode::A, NONE) => 'a',
+            (KeyCode::S, NONE) => 's',
+            (KeyCode::D, NONE) => 'd',
+            (KeyCode::F, NONE) => 'f',
+            (KeyCode::G, NONE) => 'g',
+            (KeyCode::H, NONE) => 'h',
+            (KeyCode::J, NONE) => 'j',
+            (KeyCode::K, NONE) => 'k',
+            (KeyCode::L, NONE) => 'l',
+            (KeyCode::Ö, NONE) => 'ö',
+            (KeyCode::Ä, NONE) => 'ä',
+            (KeyCode::Apostrophe, NONE) => '\'',
+            (KeyCode::Numpad4, NONE) => '4',
+            (KeyCode::Numpad5, NONE) => '5',
+            (KeyCode::Numpad6, NONE) => '6',
+            (KeyCode::LessThan, NONE) => '<',
+            (KeyCode::Z, NONE) => 'z',
+            (KeyCode::X, NONE) => 'x',
+            (KeyCode::C, NONE) => 'c',
+            (KeyCode::V, NONE) => 'v',
+            (KeyCode::B, NONE) => 'b',
+            (KeyCode::N, NONE) => 'n',
+            (KeyCode::M, NONE) => 'm',
+            (KeyCode::Comma, NONE) => ',',
+            (KeyCode::Period, NONE) => '.',
+            (KeyCode::Dash, NONE) => '-',
+            (KeyCode::Numpad1, NONE) => '1',
+            (KeyCode::Numpad2, NONE) => '2',
+            (KeyCode::Numpad3, NONE) => '3',
+            (KeyCode::NumpadEnter, NONE) => '\n',
+            (KeyCode::Space, NONE) => ' ',
+            (KeyCode::Numpad0, NONE) => '0',
+            (KeyCode::NumpadDecimal, NONE) => '.',
+
+            (KeyCode::Paragraph, SHIFT) => '½',
+            (KeyCode::Digit1, SHIFT) => '!',
+            (KeyCode::Digit2, SHIFT) => '"',
+            (KeyCode::Digit3, SHIFT) => '#',
+            (KeyCode::Digit4, SHIFT) => '¤',
+            (KeyCode::Digit5, SHIFT) => '%',
+            (KeyCode::Digit6, SHIFT) => '&',
+            (KeyCode::Digit7, SHIFT) => '/',
+            (KeyCode::Digit8, SHIFT) => '(',
+            (KeyCode::Digit9, SHIFT) => ')',
+            (KeyCode::Digit0, SHIFT) => '=',
+            (KeyCode::Plus, SHIFT) => '?',
+            (KeyCode::Accent, SHIFT) => '`',
+            (KeyCode::NumpadDivide, SHIFT) => '/',
+            (KeyCode::NumpadMultiply, SHIFT) => '*',
+            (KeyCode::NumbadSubtract, SHIFT) => '-',
+            (KeyCode::Tab, SHIFT) => '\t',
+            (KeyCode::Q, SHIFT) => 'Q',
+            (KeyCode::W, SHIFT) => 'W',
+            (KeyCode::E, SHIFT) => 'E',
+            (KeyCode::R, SHIFT) => 'R',
+            (KeyCode::T, SHIFT) => 'T',
+            (KeyCode::Y, SHIFT) => 'Y',
+            (KeyCode::U, SHIFT) => 'U',
+            (KeyCode::I, SHIFT) => 'I',
+            (KeyCode::O, SHIFT) => 'O',
+            (KeyCode::P, SHIFT) => 'P',
+            (KeyCode::Å, SHIFT) => 'Å',
+            (KeyCode::Umlaut, SHIFT) => '^',
+            (KeyCode::Enter, SHIFT) => '\n',
+            (KeyCode::NumbadAdd, SHIFT) => '+',
+            (KeyCode::A, SHIFT) => 'A',
+            (KeyCode::S, SHIFT) => 'S',
+            (KeyCode::D, SHIFT) => 'D',
+            (KeyCode::F, SHIFT) => 'F',
+            (KeyCode::G, SHIFT) => 'G',
+            (KeyCode::H, SHIFT) => 'H',
+            (KeyCode::J, SHIFT) => 'J',
+            (KeyCode::K, SHIFT) => 'K',
+            (KeyCode::L, SHIFT) => 'L',
+            (KeyCode::Ö, SHIFT) => 'Ö',
+            (KeyCode::Ä, SHIFT) => 'Ä',
+            (KeyCode::Apostrophe, SHIFT) => '*',
+            (KeyCode::LessThan, SHIFT) => '>',
+            (KeyCode::Z, SHIFT) => 'Z',
+            (KeyCode::X, SHIFT) => 'X',
+            (KeyCode::C, SHIFT) => 'C',
+            (KeyCode::V, SHIFT) => 'V',
+            (KeyCode::B, SHIFT) => 'B',
+            (KeyCode::N, SHIFT) => 'N',
+            (KeyCode::M, SHIFT) => 'M',
+            (KeyCode::Comma, SHIFT) => ';',
+            (KeyCode::Period, SHIFT) => ':',
+            (KeyCode::Dash, SHIFT) => '_',
+            (KeyCode::NumpadEnter, SHIFT) => '\n',
+            (KeyCode::Space, SHIFT) => ' ',
+            
+            (KeyCode::Digit2, ALTGR) => '@',
+            (KeyCode::Digit3, ALTGR) => '£',
+            (KeyCode::Digit4, ALTGR) => '$',
+            (KeyCode::Digit5, ALTGR) => '€',
+            (KeyCode::Digit7, ALTGR) => '{',
+            (KeyCode::Digit8, ALTGR) => '[',
+            (KeyCode::Digit9, ALTGR) => ']',
+            (KeyCode::Digit0, ALTGR) => '}',
+            (KeyCode::Plus, ALTGR) => '\\',
+            (KeyCode::E, ALTGR) => '€',
+            (KeyCode::Umlaut, ALTGR) => '~',
+            (KeyCode::LessThan, ALTGR) => '|',
+            (KeyCode::M, ALTGR) => 'µ',
+
+            _ => return None
+        })
+    }
+
+    fn is_pressed(&self, keycode: KeyCode) -> bool {
+        self.pressed_keys[keycode as usize]
     }
 }
 
@@ -227,13 +423,14 @@ enum DriverState {
 }
 
 pub struct KeyEvent {
-    keycode: KeyCode,
-    modifiers: Modifiers,
-    char: Option<char>,
-    state: KeyState,
+    pub keycode: KeyCode,
+    pub modifiers: Modifiers,
+    pub char: Option<char>,
+    pub state: KeyState,
 }
 
 // TODO: Add explicit discriminant values
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum KeyCode {
     Unknown,
 
@@ -356,11 +553,23 @@ pub enum KeyCode {
     Mute,
 }
 
+impl KeyCode {
+    fn write<W: core::fmt::Write>(&self, w: &mut W) {
+        match self {
+            Self::Å => write!(w, "AO"),
+            Self::Ä => write!(w, "AE"),
+            Self::Ö => write!(w, "OE"),
+            _ => write!(w, "{:?}", self)
+        }.unwrap()
+    }
+}
+
 pub enum KeyState {
     Pressed,
     Held,
 }
 
+#[derive(PartialEq, Eq, Clone, Copy)]
 pub struct Modifiers {
     shift: bool,
     alt: bool,
@@ -369,110 +578,31 @@ pub struct Modifiers {
     meta: bool,
 }
 
+impl Modifiers {
+    const NONE: Self = Self { shift: false, alt: false, altgr: false, ctrl: false, meta: false };
+    const SHIFT: Self = Self { shift: true, alt: false, altgr: false, ctrl: false, meta: false };
+    const CTRL: Self = Self { shift: false, alt: false, altgr: false, ctrl: true, meta: false };
+    const ALT: Self = Self { shift: false, alt: true, altgr: false, ctrl: false, meta: false };
+    const ALTGR: Self = Self { shift: false, alt: false, altgr: true, ctrl: false, meta: false };
+    const META: Self = Self { shift: false, alt: false, altgr: false, ctrl: false, meta: true };
+}
+
+/// Be careful of deadlocks when calling this function from an interrupt handler
 pub fn get_key_event() -> KeyEvent {
-    todo!()
+    while HAS_KEYEVENT_IN_BUFFER.load(Ordering::Acquire) == false {}
+
+    let mut driver = DRIVER.lock();
+    let ret = driver.keyevent_buffer.remove(0);
+    if driver.keyevent_buffer.len() == 0 {
+        HAS_KEYEVENT_IN_BUFFER.store(false, Ordering::Release);
+    }
+    ret
 }
 
 extern "x86-interrupt" fn interrupt_handler(_: InterruptStackFrame) {
     let byte = unsafe { crate::ps2::get_byte() };
-    // print!("{:02X} ", byte);
-    unsafe {
-        DRIVER.handle_byte(byte);
-    }
+    
+    DRIVER.try_lock().expect("PS/2 driver deadlock").handle_byte(byte);
 
     unsafe { crate::pic::send_eoi(1) };
-}
-
-struct SVec<T, const N: usize> {
-    inner: [MaybeUninit<T>; N],
-    length: usize,
-}
-
-impl<T, const N: usize> SVec<T, N> {
-    pub fn new() -> Self {
-        Self {
-            inner: MaybeUninit::uninit_array(),
-            length: 0,
-        }
-    }
-}
-
-impl<T, const N: usize> SVec<T, N> {
-    pub fn len(&self) -> usize {
-        self.length
-    }
-
-    pub fn capacity(&self) -> usize {
-        N
-    }
-
-    pub fn push(&mut self, value: T) {
-        self.inner[self.length] = MaybeUninit::new(value);
-        self.length += 1;
-    }
-
-    pub fn pop(&mut self) -> Option<T> {
-        if self.length > 0 {
-            self.length -= 1;
-            Some(unsafe { self.inner[self.length].assume_init_read() })
-        } else {
-            None
-        }
-    }
-
-    pub fn get_slice(&self) -> &[T] {
-        unsafe { core::mem::transmute(&self.inner[..self.length]) }
-    }
-
-    pub fn get_slice_mut(&mut self) -> &mut [T] {
-        unsafe { core::mem::transmute(&mut self.inner[..self.length]) }
-    }
-}
-
-impl<T, const N: usize> Index<usize> for SVec<T, N> {
-    type Output = T;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        if index >= self.length {
-            panic!(
-                "Index out of bounds; index was {}, max was {}",
-                index,
-                self.length - 1
-            );
-        } else {
-            unsafe { self.inner[index].assume_init_ref() }
-        }
-    }
-}
-
-impl<T, const N: usize> IndexMut<usize> for SVec<T, N> {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        if index >= self.length {
-            panic!(
-                "Index out of bounds; index was {}, max was {}",
-                index,
-                self.length - 1
-            );
-        } else {
-            unsafe { self.inner[index].assume_init_mut() }
-        }
-    }
-}
-
-impl<T: Clone, const N: usize> Clone for SVec<T, N> {
-    fn clone(&self) -> Self {
-        let mut ret = SVec::new();
-        for i in self.get_slice() {
-            ret.push(i.clone());
-        }
-        ret
-    }
-}
-
-impl<T, const N: usize> Drop for SVec<T, N> {
-    fn drop(&mut self) {
-        for item in self.get_slice_mut() {
-            core::mem::drop(item);
-        }
-    }
 }
