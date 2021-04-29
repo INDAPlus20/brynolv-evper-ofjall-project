@@ -119,6 +119,10 @@ binary_path = os.path.join(
 target_path = os.path.join(project_path, 'target')
 out_path = os.path.join(project_path, 'out')
 
+# Check if the out path exists.
+# If it doesn't, create it
+if not os.path.exists(out_path):
+    os.mkdir(out_path)
 
 # First, build the project to a normal binary
 build_command = ['cargo', 'build']
