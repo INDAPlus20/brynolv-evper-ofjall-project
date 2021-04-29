@@ -31,8 +31,7 @@ const CURSOR_GLYPH: Glyph = [
     [0; 8],
 ];
 
-// DON'T COMMIT THIS
-pub static mut PRINTER: Printer = unsafe { Printer::uninitialized() };
+static mut PRINTER: Printer = unsafe { Printer::uninitialized() };
 
 pub struct Printer {
     framebuffer: FrameBuffer,
