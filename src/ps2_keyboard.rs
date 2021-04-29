@@ -73,7 +73,25 @@ impl Driver {
     }
 
     fn handle_scancode(&mut self, scancode: &mut [u8]) {
-        println!("scancode: {:#X?}", scancode);
+        let was_released = match scancode {
+            [b] | [0xE0, b] => {
+                let was_released = *b & 0x80 != 0;
+                *b &= !0x80;
+                was_released
+            },
+            [0xE0, 0x2A, 0xE0, 0x37] => false,
+            [0xE0, 0xB7, 0xE0, 0xAA] => {
+                scancode[1] = 0x2A;
+                scancode[3] = 0x37;
+                true
+            }
+            _ => false
+        };
+
+        let keycode = match scancode {
+            [0x01] => KeyCode::Escape,
+            [0x02] => KeyCode::Digit1,
+        };
     }
 }
 
