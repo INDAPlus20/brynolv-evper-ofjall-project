@@ -72,8 +72,11 @@ impl Printer {
         let (_, _, _, bytes_per_pixel, buffer) = self.get_buffer_info();
         for y in 0..16 {
             for x in 0..8 {
-                let color = glyph[y][x];
                 for b in 0..bytes_per_pixel {
+                    let mut color = glyph[y][x];
+                    if b != 2 {
+                        color >>= 1;
+                    }
                     buffer[buffer_offset_to_glyph_position(x, y, position) + b] = color;
                 }
             }
