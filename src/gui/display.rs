@@ -1,0 +1,327 @@
+use core::{fmt::Write, mem::{MaybeUninit, zeroed}, slice};
+
+use bootloader::boot_info::FrameBuffer;
+use x86_64::structures::paging::frame;
+
+use crate::svec::SVec;
+
+use super::widget::{Widget, Event};
+
+macro_rules! zeroed {
+    ($t:ty) => {
+        core::mem::transmute([0u8; core::mem::size_of::<$t>()])
+    };
+}
+
+const DEFAULT_FONT: Font = Font::from(unsafe { core::mem::transmute::<_, [[[u8; 8]; 16]; 128]>(*include_bytes!("../vgafont.bin")) });
+
+pub struct Font {
+    glyphs: [Glyph; 128]
+}
+
+impl const From<[[[u8; 8]; 16]; 128]> for Font {
+    fn from(array: [[[u8; 8]; 16]; 128]) -> Self {
+        let mut glyphs = [Glyph::EMPTY; 128];
+        let mut i = 0;
+        loop {
+            glyphs[i] = Glyph::from(array[i]);
+            i += 1;
+            if i >= 128 {
+                break;
+            }
+        }
+        Self {
+            glyphs
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Glyph([[u8; 8]; 16]);
+
+impl Glyph {
+    const EMPTY: Self = Self([[0; 8]; 16]);
+}
+
+impl const From<[[u8; 8]; 16]> for Glyph {
+    fn from(array: [[u8; 8]; 16]) -> Self {
+        Self(array)
+    }
+}
+
+pub struct Window<'a> {
+    buffer: &'a mut [u32],
+    buffer_width: usize,
+    buffer_height: usize,
+    rect: Rect
+}
+
+impl<'a> Window<'a> {
+    pub fn subwindow<'b>(&'a mut self, rect: Rect) -> Window<'b> where 'a : 'b {
+        assert!(rect.x + rect.width <= self.rect.width);
+        assert!(rect.y + rect.height <= self.rect.height);
+        Self {
+            rect: Rect {
+                x: self.rect.x + rect.x,
+                y: self.rect.y + rect.y,
+                width: rect.width,
+                height: rect.height,
+            },
+            buffer_width: self.buffer_width,
+            buffer_height: self.buffer_height,
+            buffer: self.buffer,
+        }
+    }
+
+    pub fn set_pixel(&mut self, x: usize, y: usize, color: u32) {
+        assert!(x < self.rect.width);
+        assert!(y < self.rect.height);
+        let x = self.rect.x + x;
+        let y = self.rect.y + y;
+        self.buffer[y * self.buffer_width + x] = color;
+    }
+    pub fn get_pixel(&mut self, x: usize, y: usize) -> u32 {
+        assert!(x < self.rect.width);
+        assert!(y < self.rect.height);
+        let x = self.rect.x + x;
+        let y = self.rect.y + y;
+        self.buffer[y * self.buffer_width + x]
+    }
+
+    pub fn draw_rect(&mut self, mut rect: Rect, color: u32) {
+        assert!(rect.x + rect.width <= self.rect.width);
+        assert!(rect.y + rect.height <= self.rect.width);
+        rect.x += self.rect.x;
+        rect.y += self.rect.y;
+        for y in rect.y..rect.y + rect.height {
+            for x in rect.x..rect.x + rect.width {
+                self.set_pixel(x, y, 0);
+            }
+        }
+    }
+
+    pub fn draw_char(&mut self, pos: Point, scale: usize, mut char: char, font: Option<&Font>) {
+        assert!(pos.x + 8 * scale <= self.rect.width);
+        assert!(pos.y + 16 * scale <= self.rect.width);
+
+        if char > 0x7F as char {
+            char = 0x7F as char;
+        }
+
+        let font = font.unwrap_or(&DEFAULT_FONT);
+        let glyph = font.glyphs[char as usize];
+
+        for y in 0..16 * scale {
+            for x in 0..8 * scale {
+                let cx = x / scale;
+                let cy = y / scale;
+                let color = glyph.0[cy][cx];
+                let color =
+                    (color as u32) << 24 |
+                    (color as u32) << 16 |
+                    (color as u32) << 8 |
+                    (color as u32);
+                
+                self.set_pixel(x + pos.x, y + pos.y, color);
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Point {
+    pub x: usize,
+    pub y: usize
+}
+
+impl Point {
+    pub const fn new(x: usize, y: usize) -> Self { Self { x, y } }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Rect {
+    pub x: usize,
+    pub y: usize,
+    pub width: usize,
+    pub height: usize
+}
+
+impl Rect {
+    pub const fn new(x: usize, y: usize, width: usize, height: usize) -> Self { Self { x, y, width, height } }
+
+    pub const fn smallest_containing(a: Rect, b: Rect) -> Rect {
+        const fn min(a: usize, b: usize) -> usize {
+            if a < b { a } else { b }
+        }
+        const fn max(a: usize, b: usize) -> usize {
+            if a > b { a } else { b }
+        }
+
+        let left = min(a.x, b.x);
+        let top = min( a.y, b.y);
+        let right = max(a.x + a.width, b.x + b.width);
+        let bottom = max(a.y + a.height, b.y + b.height);
+        Rect::new(left, top, right - left, bottom - top)
+    }
+}
+
+static mut DISPLAY: Display = unsafe { Display::uinitialized() };
+
+/// The engine of the GUI system.
+struct Display {
+    framebuffer: FrameBuffer,
+    widgets: SVec<&'static mut dyn Widget, 16>
+}
+
+impl Display {
+    /// Create an uninitialized instance of Display.
+    ///
+    /// # Safety
+    ///
+    /// `initialize` MUST be called on the returned value before any other method.
+    /// Failure to do so may invoke undefined behaviour.
+    pub const unsafe fn uinitialized() -> Self {
+        Self {
+            framebuffer: zeroed!(FrameBuffer),
+            widgets: SVec::new()
+        }
+    }
+
+    /// Adds a widget to the end of the widget list.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the widget list is full.
+    pub fn add_widget(&mut self, widget: &'static mut dyn Widget) {
+        self.widgets.push(widget);
+    }
+
+    /// Sends an event to the widgets.
+    ///
+    /// The event is passed through the widgets from the top down, and will continue to
+    /// be passed through until a widget responds with a response other than `Response::NotHandled`.
+    pub fn send_event(&mut self, event: Event) {
+        for (i, widget) in self.widgets.get_slice_mut().into_iter().enumerate().rev() {
+            match widget.on_event(event.clone()) {
+                super::widget::Response::NotHandled => {}
+                super::widget::Response::Nothing => break,
+                super::widget::Response::RemoveMe => {
+                    let area = widget.used_area();
+                    self.widgets.remove(i);
+                    // As we removed a widget, the widget below might need to redraw (if there is one).
+                    for widget_index in 0..i {
+                        self.widgets[widget_index].invalidate(area);
+                    }
+                    break;
+                }
+            }
+        }
+
+        self.check_redraw();
+    }
+
+    /// Redraws if any widget is marked dirty.
+    pub fn check_redraw(&mut self) {
+        if self.widgets.get_slice().iter().any(|w| w.dirty()) {
+            self.draw();
+        }
+    }
+
+    /// Draw the widgets to the screen.
+    fn draw(&mut self) {
+        for i in 0..self.widgets.len() {
+            let window = (&mut self.framebuffer).into();
+            self.widgets[i].draw(window);
+        }
+    }
+
+    /// Invalidates all widgets and starts drawing them.
+    pub fn force_redraw(&mut self) {
+        for widget in self.widgets.get_slice_mut() {
+            let area = widget.used_area();
+            widget.invalidate(area);
+        }
+        self.clear();
+        self.draw()
+    }
+
+    /// Clear the screen;
+    fn clear(&mut self) {
+        let mut window: Window = (&mut self.framebuffer).into();
+        let rect = window.rect;
+        window.draw_rect(rect, 0);
+    }
+}
+
+
+impl<'a> From<&'a mut FrameBuffer> for Window<'a> {
+    fn from(framebuffer: &'a mut FrameBuffer) -> Self {
+        Self {
+            rect: Rect {
+                x: 0,
+                y: 0,
+                width: framebuffer.info().horizontal_resolution,
+                height: framebuffer.info().vertical_resolution
+            },
+            buffer_width: framebuffer.info().horizontal_resolution,
+            buffer_height: framebuffer.info().vertical_resolution,
+            buffer: {
+                let ptr = framebuffer.buffer_mut().as_mut_ptr() as _;
+                let len = framebuffer.buffer_mut().len() / 4;
+                unsafe {
+                    slice::from_raw_parts_mut(ptr, len)
+                }
+            }
+        }
+    }
+}
+
+pub unsafe fn initialize(framebuffer: FrameBuffer) {
+    let cw = framebuffer.info().horizontal_resolution / 8;
+    let ch = framebuffer.info().vertical_resolution / 16;
+    DISPLAY.framebuffer = framebuffer;
+    DISPLAY.widgets.clear_without_drop();
+}
+
+pub unsafe fn add_widget(widget: &'static mut dyn Widget) {
+    DISPLAY.add_widget(widget)
+}
+
+pub unsafe fn send_event(event: Event) {
+    DISPLAY.send_event(event)
+}
+
+pub unsafe fn force_redraw() {
+    DISPLAY.force_redraw()
+}
+
+pub unsafe fn check_redraw() {
+    DISPLAY.check_redraw();
+}
+
+
+
+
+
+
+
+
+
+
+// #[macro_export]
+// macro_rules! print {
+//     ($($arg:tt)*) => ($crate::gui::display::_print(format_args!($($arg)*)));
+// }
+
+// #[macro_export]
+// macro_rules! println {
+//     () => ($crate::print!("\n"));
+//     ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
+// }
+
+// #[doc(hidden)]
+// pub fn _print(args: core::fmt::Arguments) {
+//     unsafe {
+//         // PRINTER_WIDGET.write_fmt(args).unwrap();
+//     }
+// }

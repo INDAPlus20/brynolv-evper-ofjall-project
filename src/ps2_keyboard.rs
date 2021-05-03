@@ -422,6 +422,7 @@ enum DriverState {
     InTheMiddleOfReceivingAKeypress(SVec<u8, 6>),
 }
 
+#[derive(Clone)]
 pub struct KeyEvent {
     pub keycode: KeyCode,
     pub modifiers: Modifiers,
@@ -564,6 +565,7 @@ impl KeyCode {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum KeyState {
     Pressed,
     Held,
@@ -579,12 +581,12 @@ pub struct Modifiers {
 }
 
 impl Modifiers {
-    const NONE: Self = Self { shift: false, alt: false, altgr: false, ctrl: false, meta: false };
-    const SHIFT: Self = Self { shift: true, alt: false, altgr: false, ctrl: false, meta: false };
-    const CTRL: Self = Self { shift: false, alt: false, altgr: false, ctrl: true, meta: false };
-    const ALT: Self = Self { shift: false, alt: true, altgr: false, ctrl: false, meta: false };
-    const ALTGR: Self = Self { shift: false, alt: false, altgr: true, ctrl: false, meta: false };
-    const META: Self = Self { shift: false, alt: false, altgr: false, ctrl: false, meta: true };
+    pub const NONE: Self = Self { shift: false, alt: false, altgr: false, ctrl: false, meta: false };
+    pub const SHIFT: Self = Self { shift: true, alt: false, altgr: false, ctrl: false, meta: false };
+    pub const CTRL: Self = Self { shift: false, alt: false, altgr: false, ctrl: true, meta: false };
+    pub const ALT: Self = Self { shift: false, alt: true, altgr: false, ctrl: false, meta: false };
+    pub const ALTGR: Self = Self { shift: false, alt: false, altgr: true, ctrl: false, meta: false };
+    pub const META: Self = Self { shift: false, alt: false, altgr: false, ctrl: false, meta: true };
 }
 
 /// Be careful of deadlocks when calling this function from an interrupt handler
