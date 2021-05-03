@@ -14,6 +14,18 @@ impl<T, const N: usize> SVec<T, N> {
             length: 0,
         }
     }
+
+}
+
+impl<T: Copy, const N: usize> SVec<T, N> {
+    pub fn with_length(val: T, length: usize) -> Self {
+        assert!(length <= N);
+        let mut s = Self::new();
+        for _ in 0..length {
+            s.push(val);
+        }
+        s
+    }
 }
 
 impl<T, const N: usize> SVec<T, N> {
@@ -54,6 +66,19 @@ impl<T, const N: usize> SVec<T, N> {
         }
     }
 
+    pub fn clear(&mut self) {
+        while self.length > 0 {
+            self.length -= 1;
+            unsafe {
+                self.inner[self.length].assume_init_drop();
+            }
+        }
+    }
+
+    pub fn clear_without_drop(&mut self) {
+        self.length = 0;
+    }
+
     pub fn get_slice(&self) -> &[T] {
         unsafe { core::mem::transmute(&self.inner[..self.length]) }
     }
@@ -69,9 +94,9 @@ impl<T, const N: usize> Index<usize> for SVec<T, N> {
     fn index(&self, index: usize) -> &Self::Output {
         if index >= self.length {
             panic!(
-                "Index out of bounds; index was {}, max was {}",
+                "Index out of bounds; index was {}, length was {}",
                 index,
-                self.length - 1
+                self.length
             );
         } else {
             unsafe { self.inner[index].assume_init_ref() }
@@ -83,9 +108,9 @@ impl<T, const N: usize> IndexMut<usize> for SVec<T, N> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         if index >= self.length {
             panic!(
-                "Index out of bounds; index was {}, max was {}",
+                "Index out of bounds; index was {}, length was {}",
                 index,
-                self.length - 1
+                self.length
             );
         } else {
             unsafe { self.inner[index].assume_init_mut() }
