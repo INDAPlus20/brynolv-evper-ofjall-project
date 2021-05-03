@@ -18,6 +18,7 @@ mod ps2;
 mod ps2_keyboard;
 mod gdt;
 mod svec;
+mod harddisk;
 
 use core::{panic::PanicInfo, sync::atomic::{AtomicBool, Ordering}};
 
