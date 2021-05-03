@@ -7,6 +7,11 @@
 #![feature(maybe_uninit_extra)]
 #![feature(maybe_uninit_ref)]
 #![feature(non_ascii_idents)]
+#![feature(const_trait_impl)]
+#![feature(const_mut_refs)]
+#![feature(const_fn)]
+#![feature(const_option)]
+#![feature(option_result_unwrap_unchecked)]
 
 extern crate rlibc;
 
@@ -18,10 +23,12 @@ mod ps2;
 mod ps2_keyboard;
 mod gdt;
 mod svec;
+mod gui;
 
 use core::{panic::PanicInfo, sync::atomic::{AtomicBool, Ordering}};
 
 use bootloader::BootInfo;
+use gui::widget::Event;
 
 use crate::ps2_keyboard::KeyCode;
 
@@ -30,14 +37,23 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
     // No function call may precede this one, or else undefined behaviour may be invoked.
     initialize(boot_info);
 
-    println!("Hello, World!");
+    // println!("Hello, World!");
+    unsafe {
+        gui::display::send_event(Event::Custom("print", &"Hello, World!\n"));
+    }
 
     loop {
         let event = ps2_keyboard::get_key_event();
         if let Some(char) = event.char {
-            print!("{}", char);
-        } else if event.keycode == KeyCode::Backspace {
-            print!("\x08");
+            unsafe { gui::display::send_event(Event::Custom("print", &char)); }
+            // print!("{}", char);
+        } else {
+            unsafe {
+                gui::display::send_event(Event::KeyEvent(event));
+            }
+            // if event.keycode == KeyCode::Backspace {
+            //     print!("\x08");
+            // }
         }
     }
 }
@@ -67,7 +83,10 @@ fn initialize(boot_info: &BootInfo) {
             // and as `Framebuffer` has no custom destructor and is only comprised of
             // integers and structs of integers. (and an enum with #[repr(C)])
             printer::initialize(core::ptr::read(boot_info.framebuffer.as_ref().unwrap()));
+            // printer::force_redraw();
             printer::clear();
+
+            gui::display::initialize(core::ptr::read(boot_info.framebuffer.as_ref().unwrap()));
             
             pic::initialize();
             x86_64::instructions::interrupts::enable();
@@ -88,5 +107,6 @@ fn panic_handler(info: &PanicInfo) -> ! {
             println!("{}: Panic", loc);
         }
     }
+    // unsafe { printer::check_redraw(); }
     loop {}
 }
