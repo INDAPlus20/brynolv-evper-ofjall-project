@@ -56,13 +56,12 @@ fn initialize(boot_info: &BootInfo) {
     // If it returns an `Err(_)`, the comparison failed, so `INITIALIZED` is `true`, and we should not try to initialize again.
     if INITIALIZED.compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed).is_ok() {
 
-        // Safety: All modules' initialization functions have orderings that must be guaranteed
-        // to avoid undefined behaviour. These are currently undocumented,
-        // but the orderings are respected in the below block.
+        // Safety: Some modules' initialization functions have orderings that must be guaranteed
+        // to avoid undefined behaviour. These are respected in the below block.
         unsafe {
             gdt::initialize();
             idt::initialize();
-    
+            
             // The call to `ptr::read` is safe here, as a reference is always valid for reads,
             // and as `Framebuffer` has no custom destructor and is only comprised of
             // integers and structs of integers. (and an enum with #[repr(C)])
@@ -70,6 +69,7 @@ fn initialize(boot_info: &BootInfo) {
             printer::clear();
             
             pic::initialize();
+            // Enabling interrupts must happen AFTER both the GDT and the IDT have been initialized
             x86_64::instructions::interrupts::enable();
             ps2::initialize();
             ps2_keyboard::initialize();

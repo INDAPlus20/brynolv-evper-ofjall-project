@@ -3,7 +3,11 @@ use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, Pag
 static mut IDT: InterruptDescriptorTable = InterruptDescriptorTable::new();
 
 /// Initializes the Interrupt Descriptor Table and assigns interrupt handlers for the default interrupts coming the CPU.
-/// This needs to be called before anything else in the module
+/// This needs to be called before anything else in the module.
+///
+/// # Safety
+///
+/// This should not be called if another call to this function has not yet returned. 
 pub fn initialize() {
     let idt = unsafe { &mut IDT };
 

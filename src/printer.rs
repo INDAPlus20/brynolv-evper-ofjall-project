@@ -221,10 +221,15 @@ unsafe fn buffer_offset_to_glyph_position(x: usize, y: usize, position: (usize, 
     ((y + pos_y * 16) * stride + (x + pos_x * 8)) * bytes_per_pixel
 }
 
-/// ## Safety
-/// Framebuffer must be a valid framebuffer.
-/// Call this first.
-/// Only one Writer instance should ever be in existance.
+/// Initializes the printer.
+///
+/// # Safety
+///
+/// `framebuffer` must be a valid framebuffer.
+/// This should not be called if another call to this function has not yet returned.
+///
+/// Any panics before this is initialized will trigger a processor reset.
+/// To avoid this, this function should be called as early as possible.
 pub unsafe fn initialize(framebuffer: FrameBuffer) {
     if PRINTER.initialized {
         panic!("PRINTER already initialized!");
