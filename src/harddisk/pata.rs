@@ -59,24 +59,14 @@ enum Errors {
     BBK = 0b1000_0000
 }
 
-struct Register {
-    offset: u8,
-    direction: Direction,
-    param_size_28:u8,
-    param_size_48:u8,
-    control:bool
-}
-
-enum Direction {
-    R,
-    W,
-    RW
-}
-
 pub unsafe fn get_drives() -> SVec<DriveInfo, 4> /* or bigger*/ {
     todo!()
 }
 
+/// Fills up the provided slice with data from disk, starting with `start_sector`
+/// This means the slice needs to have a size that's a multiple of 512.
+/// # Safety:
+/// The contents/existance of a disk to read from is not checked.
 pub unsafe fn read_sectors(drive: u8, start_sector: usize, buffer: &mut [u8]) {
     if buffer.len() % 512 != 0 {
         panic!("Buffer must be a multiple of 512 bytes");
@@ -84,12 +74,43 @@ pub unsafe fn read_sectors(drive: u8, start_sector: usize, buffer: &mut [u8]) {
     if drive>1{
         panic!("No support for more than 2 drives")
     }
-    let sectorcount=(buffer.len()/512).to_le_bytes();
-    let lba = start_sector.to_le_bytes();
     while BUSY.load(core::sync::atomic::Ordering::Acquire) {};
     BUSY.store(true, core::sync::atomic::Ordering::Release);
     
     DRIVE_HEAD_REG.write(0x40|(drive<<4));
+    send_lba_and_sector_count(start_sector, (buffer.len()/512) as u16);
+    COMMAND_REG.write(0x24);//READ SECTORS EXT
+
+    print!("R");
+    for i in 0..buffer.len()/512 {
+        poll();
+        for j in 0..256{
+            // if j%2==1{continue;}
+            let val=DATA_REG.read().to_le_bytes();
+            buffer[i*512+j*2]=val[0];
+            buffer[i*512+j*2+1]=val[1];
+            print!(".");
+        }
+    }
+    // poll();
+    print!("done");
+    BUSY.store(false,core::sync::atomic::Ordering::Release);
+}
+
+/// Tells the selected disk wich sector to start work on on how many sectors
+/// # Example:
+/// ```
+/// //Select master drive
+/// DRIVE_HEAD_REG.write(0x40);
+/// //Select work sectors
+/// send_lba_and_sector_count(start_sector,sectorcount);
+/// //Read sectors
+/// COMMAND_REG.write(0x24);
+/// ```
+unsafe fn send_lba_and_sector_count(start_sector:usize,sector_count:u16) {
+    let lba = start_sector.to_le_bytes();
+    let sectorcount=sector_count.to_le_bytes();
+
     //high bytes
     SECTOR_COUNT_REG.write(sectorcount[1]);
     LBA_LOW_REG.write(lba[3]);
@@ -100,22 +121,14 @@ pub unsafe fn read_sectors(drive: u8, start_sector: usize, buffer: &mut [u8]) {
     LBA_LOW_REG.write(lba[0]);
     LBA_MID_REG.write(lba[1]);
     LBA_HIGH_REG.write(lba[2]);
-    COMMAND_REG.write(0x24);//READ SECTORS EXT
-
-    
-    for i in 0..buffer.len()/512 {
-        poll();
-        for mut j in 0..256{
-            let val=DATA_REG.read().to_le_bytes();
-            buffer[i*512+j]=val[0];
-            j+=1;
-            buffer[i*512+j]=val[1];
-        }
-    }
 }
 
+
+/// Polls the status of selected drive, breaking when it's finished.
 unsafe fn poll(){
     //Time to poll (we be singletasking)
+    print!("Poll");
+    let mut iter=1;
     loop {
         let status = STATUS_REG.read();
         let bsy = status&0x80==0x80;
@@ -127,8 +140,16 @@ unsafe fn poll(){
             //TODO: error handling
             panic!("Harddisk error")
         } else if !bsy&&drq{
+            print!("Done\n");
             break;
         }
+        if iter%100==0 {
+            software_reset();
+        } else if iter%1000==0 {
+            panic!("Hardrive not finished")
+        }
+        iter+=1;
+        print!(".");
     }
 }
 
@@ -136,8 +157,33 @@ pub unsafe fn write_sectors(drive: u8, start_sector: usize, buffer: &[u8]) {
     if buffer.len() % 512 != 0 {
         panic!("Buffer must be a multiple of 512 bytes");
     }
+    if drive>1{
+        panic!("No support for more than 2 drives")
+    }
+    while BUSY.load(core::sync::atomic::Ordering::Acquire) {};
+    BUSY.store(true, core::sync::atomic::Ordering::Release);
+    
+    DRIVE_HEAD_REG.write(0x40|(drive<<4));
+    send_lba_and_sector_count(start_sector, (buffer.len()/512) as u16);
+    COMMAND_REG.write(0x34);//WRITE SECTORS EXT
 
-    todo!()
+    print!("W");
+    for i in 0..buffer.len()/512 {
+        poll();
+        for j in 0..256{
+            // if j%2==1 {continue;}
+            let val =u16::from_le_bytes([buffer[i*512+j*2],buffer[i*512+j*2+1]]);
+            DATA_REG.write(val);
+            print!(".");
+        }
+    }
+    print!("flush");
+    //Flush cache
+    //poll();
+    COMMAND_REG.write(0xE7);
+    //poll();
+    print!("done\n");
+    BUSY.store(false,core::sync::atomic::Ordering::Release);
 }
 
 unsafe fn software_reset(){
