@@ -4,6 +4,13 @@ use spin::Mutex;
 use x86_64::structures::idt::InterruptStackFrame;
 use crate::svec::SVec;
 
+/// Initializes the PS/2 keyboard driver.
+///
+/// # Safety
+///
+/// This should not be called if another call to this function has not yet returned.
+///
+/// The module `ps2` must be initialized before this function is called.
 pub unsafe fn initialize() {
     crate::idt::register_irq(0x20 + 1, interrupt_handler);
 }

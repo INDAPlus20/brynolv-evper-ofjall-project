@@ -91,6 +91,13 @@ impl Driver {
 
 static mut DRIVER: Driver = Driver { data_port: Port::new(0x60), status_command_port: Port::new(0x64) };
 
+/// Initializes the PS/2 controller.
+///
+/// # Safety
+///
+/// This should not be called if another call to this function has not yet returned.
+///
+/// The modules `printer` and `pic` must be initialized before this function is called.
 pub unsafe fn initialize() {
     DRIVER.initialize();
 }

@@ -25,6 +25,10 @@ pub unsafe fn send_eoi(irq: u8) {
 
 
 /// Initializes the PICs and tells them to ignore all interupts.
+///
+/// # Safety
+///
+/// This should not be called if another call to this function has not yet returned.
 pub unsafe fn initialize() {
     const MASTER_OFFSET: u8 = 0x20;
     const SLAVE_OFFSET: u8 = 0x28;
