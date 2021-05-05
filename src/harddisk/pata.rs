@@ -115,10 +115,9 @@ pub unsafe fn read_sectors(drive: u8, start_sector: usize, buffer: &mut [u8]) {
     send_lba_and_sector_count(start_sector, (buffer.len() / 512) as u16);
     COMMAND_REG.write(0x24); //READ SECTORS EXT
 
-    print!("R"); //I do not know why I need a delay here... poll() should be sufficient.
+    print!("R"); //I do not know why I need a delay here... poll() should be sufficient. //EDIT: No longer appear to be needed, but the "flashing" cursor is, so leaving it here to "explain" why that is.
     for i in 0..buffer.len() / 512 {
         poll();
-        // print!("P");
         for j in 0..256 {
             let val = DATA_REG.read().to_le_bytes();
             buffer[i * 512 + j * 2] = val[0];
@@ -170,7 +169,6 @@ unsafe fn poll() {
         let drq = status & 8 == 8;
         let err = status & 1 == 1;
         let df = status & 0x20 == 0x20;
-
         if err || df {
             //TODO: error handling
             panic!("Harddisk error")
@@ -181,7 +179,7 @@ unsafe fn poll() {
             software_reset();
         }
         if iter % 1000 == 0 {
-            panic!("Hardrive not finished")
+            panic!("Hardrive polling time-out")
         }
         iter += 1;
     }
@@ -204,9 +202,7 @@ pub unsafe fn write_sectors(drive: u8, start_sector: usize, buffer: &[u8]) {
     print!("W"); //Ditto as reading
     for i in 0..buffer.len() / 512 {
         poll();
-        // print!("P");
         for j in 0..256 {
-            // if j%2==1 {continue;}
             let val = u16::from_le_bytes([buffer[i * 512 + j * 2], buffer[i * 512 + j * 2 + 1]]);
             DATA_REG.write(val);
             if j % 2 == 0 {
@@ -218,6 +214,11 @@ pub unsafe fn write_sectors(drive: u8, start_sector: usize, buffer: &[u8]) {
     }
     //Flush cache
     COMMAND_REG.write(0xE7);
+    loop {
+        if STATUS_REG.read() & 0x80 == 0 {
+            break;
+        }
+    }
     print!("\x08");
     BUSY.store(false, core::sync::atomic::Ordering::Release);
 }
