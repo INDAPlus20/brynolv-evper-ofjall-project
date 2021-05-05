@@ -2,7 +2,7 @@ use core::sync::atomic::AtomicBool;
 
 use x86_64::instructions::port::{Port, PortReadOnly, PortWriteOnly};
 
-use crate::svec::SVec;
+use crate::{nop, svec::SVec};
 
 // Assuming "typical" ports, LBA48
 const IO_BASE_PORT:u16 = 0x1F0;
@@ -74,14 +74,14 @@ pub unsafe fn read_sectors(drive: u8, start_sector: usize, buffer: &mut [u8]) {
     if drive>1{
         panic!("No support for more than 2 drives")
     }
-    while BUSY.load(core::sync::atomic::Ordering::Acquire) {};
+    while BUSY.load(core::sync::atomic::Ordering::Acquire) {print!("B")};
     BUSY.store(true, core::sync::atomic::Ordering::Release);
     
     DRIVE_HEAD_REG.write(0x40|(drive<<4));
     send_lba_and_sector_count(start_sector, (buffer.len()/512) as u16);
     COMMAND_REG.write(0x24);//READ SECTORS EXT
 
-    print!("R");
+    print!(" \x08");//I do not know why I need a delay here... poll() should be sufficient.
     for i in 0..buffer.len()/512 {
         poll();
         for j in 0..256{
@@ -89,15 +89,14 @@ pub unsafe fn read_sectors(drive: u8, start_sector: usize, buffer: &mut [u8]) {
             let val=DATA_REG.read().to_le_bytes();
             buffer[i*512+j*2]=val[0];
             buffer[i*512+j*2+1]=val[1];
-            print!(".");
+            // print!(" \x08");//It's... a delay...
         }
     }
     // poll();
-    print!("done");
     BUSY.store(false,core::sync::atomic::Ordering::Release);
 }
 
-/// Tells the selected disk wich sector to start work on on how many sectors
+/// Tells the selected disk which sector to start work on on how many sectors
 /// # Example:
 /// ```
 /// //Select master drive
@@ -127,7 +126,6 @@ unsafe fn send_lba_and_sector_count(start_sector:usize,sector_count:u16) {
 /// Polls the status of selected drive, breaking when it's finished.
 unsafe fn poll(){
     //Time to poll (we be singletasking)
-    print!("Poll");
     let mut iter=1;
     loop {
         let status = STATUS_REG.read();
@@ -140,7 +138,6 @@ unsafe fn poll(){
             //TODO: error handling
             panic!("Harddisk error")
         } else if !bsy&&drq{
-            print!("Done\n");
             break;
         }
         if iter%100==0 {
@@ -149,7 +146,6 @@ unsafe fn poll(){
             panic!("Hardrive not finished")
         }
         iter+=1;
-        print!(".");
     }
 }
 
@@ -167,22 +163,28 @@ pub unsafe fn write_sectors(drive: u8, start_sector: usize, buffer: &[u8]) {
     send_lba_and_sector_count(start_sector, (buffer.len()/512) as u16);
     COMMAND_REG.write(0x34);//WRITE SECTORS EXT
 
-    print!("W");
+    // print!("W");
+    // print!(" \x08");
     for i in 0..buffer.len()/512 {
         poll();
+        // print!("P");
         for j in 0..256{
             // if j%2==1 {continue;}
             let val =u16::from_le_bytes([buffer[i*512+j*2],buffer[i*512+j*2+1]]);
             DATA_REG.write(val);
-            print!(".");
+            if j%2==0 {
+                print!(" ");//It's... a delay...
+            } else {
+                print!("\x08");
+            }
+            // crate::nopt(128);
         }
     }
-    print!("flush");
     //Flush cache
-    //poll();
+    // poll();
     COMMAND_REG.write(0xE7);
+    // print!("F");
     //poll();
-    print!("done\n");
     BUSY.store(false,core::sync::atomic::Ordering::Release);
 }
 
