@@ -25,7 +25,41 @@ static mut DRIVE_ADRESS_REG: PortReadOnly<u8> = PortReadOnly::new(CONTROL_BASE_P
 /// TODO: make this per disk
 static BUSY: AtomicBool = AtomicBool::new(false);
 
+static mut IDENTIFY_RESULT: [u16; 256] = [0; 256];
+
 pub unsafe fn initialize() {
+    let status = STATUS_REG.read();
+    if status == 0xFF {
+        panic!("Floating bus");
+    } else {
+        DRIVE_HEAD_REG.write(0xA0);
+        send_lba_and_sector_count(0, 0);
+        COMMAND_REG.write(0xEC); //IDENTIFY
+        let status = STATUS_REG.read();
+        if status == 0 {
+            panic!("Drive does not exist");
+        }
+        while STATUS_REG.read() & 0x80 != 0 {}
+        if LBA_MID_REG.read() != 0 || LBA_HIGH_REG.read() != 0 {
+            panic!("Non-ATA drive");
+        }
+        loop {
+            let status = STATUS_REG.read();
+            if status & 8 == 0 {
+                break;
+            }
+            if status & 1 == 1 {
+                panic!("Error getting info off drive");
+            }
+        }
+        for i in 0..256 {
+            IDENTIFY_RESULT[i] = DATA_REG.read();
+        }
+    }
+    // bit 10
+    if IDENTIFY_RESULT[83] & 0x200 != 0x200 {
+        panic!("Drive doesn't support LBA48");
+    }
     DEVICE_CONTROL_REG.write(0);
 }
 
