@@ -81,18 +81,22 @@ pub unsafe fn read_sectors(drive: u8, start_sector: usize, buffer: &mut [u8]) {
     send_lba_and_sector_count(start_sector, (buffer.len()/512) as u16);
     COMMAND_REG.write(0x24);//READ SECTORS EXT
 
-    print!(" \x08");//I do not know why I need a delay here... poll() should be sufficient.
+    print!("R");//I do not know why I need a delay here... poll() should be sufficient.
     for i in 0..buffer.len()/512 {
         poll();
+        // print!("P");
         for j in 0..256{
-            // if j%2==1{continue;}
             let val=DATA_REG.read().to_le_bytes();
             buffer[i*512+j*2]=val[0];
             buffer[i*512+j*2+1]=val[1];
-            // print!(" \x08");//It's... a delay...
+            if j%2==0 {
+                print!(" ");//It's... a delay...
+            } else {
+                print!("\x08");
+            }
         }
     }
-    // poll();
+    print!("\x08");
     BUSY.store(false,core::sync::atomic::Ordering::Release);
 }
 
@@ -142,7 +146,8 @@ unsafe fn poll(){
         }
         if iter%100==0 {
             software_reset();
-        } else if iter%1000==0 {
+        }
+        if iter%1000==0 {
             panic!("Hardrive not finished")
         }
         iter+=1;
@@ -163,8 +168,7 @@ pub unsafe fn write_sectors(drive: u8, start_sector: usize, buffer: &[u8]) {
     send_lba_and_sector_count(start_sector, (buffer.len()/512) as u16);
     COMMAND_REG.write(0x34);//WRITE SECTORS EXT
 
-    // print!("W");
-    // print!(" \x08");
+    print!("W");//Ditto as reading
     for i in 0..buffer.len()/512 {
         poll();
         // print!("P");
@@ -177,14 +181,11 @@ pub unsafe fn write_sectors(drive: u8, start_sector: usize, buffer: &[u8]) {
             } else {
                 print!("\x08");
             }
-            // crate::nopt(128);
         }
     }
     //Flush cache
-    // poll();
     COMMAND_REG.write(0xE7);
-    // print!("F");
-    //poll();
+    print!("\x08");
     BUSY.store(false,core::sync::atomic::Ordering::Release);
 }
 
