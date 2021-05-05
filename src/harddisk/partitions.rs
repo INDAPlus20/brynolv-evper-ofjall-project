@@ -179,10 +179,6 @@ pub unsafe fn read_sectors(drive: u8, start_sector: usize, buffer: &mut [u8]) {
     }
 
     let sector = PARTITIONS[drive as usize].start_sector + start_sector;
-
-    let qwe = PARTITIONS[drive as usize].start_sector;
-    print!("{} {}", qwe, sector);
-
     pata::read_sectors(drive, sector, buffer);
 }
 
