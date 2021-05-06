@@ -76,12 +76,12 @@ impl<'a> Window<'a> {
         }
     }
 
-    pub fn set_pixel(&mut self, x: usize, y: usize, color: u32) {
+    pub fn set_pixel(&mut self, x: usize, y: usize, color: Color) {
         assert!(x < self.rect.width);
         assert!(y < self.rect.height);
         let x = self.rect.x + x;
         let y = self.rect.y + y;
-        self.buffer[y * self.buffer_width + x] = color;
+        self.buffer[y * self.buffer_width + x] = color.to_bgr();
     }
     pub fn get_pixel(&mut self, x: usize, y: usize) -> u32 {
         assert!(x < self.rect.width);
@@ -91,7 +91,7 @@ impl<'a> Window<'a> {
         self.buffer[y * self.buffer_width + x]
     }
 
-    pub fn draw_rect(&mut self, mut rect: Rect, color: u32) {
+    pub fn draw_rect(&mut self, mut rect: Rect, color: Color) {
         assert!(rect.x + rect.width <= self.rect.width);
         assert!(rect.y + rect.height <= self.rect.width);
         
@@ -102,7 +102,7 @@ impl<'a> Window<'a> {
         }
     }
 
-    pub fn draw_char(&mut self, pos: Point, scale: usize, mut char: char, font: Option<&Font>) {
+    pub fn draw_char(&mut self, pos: Point, scale: usize, mut char: char, foreground: Color, background: Color, font: Option<&Font>) {
         assert!(pos.x + 8 * scale <= self.rect.width);
         assert!(pos.y + 16 * scale <= self.rect.width);
 
@@ -117,15 +117,63 @@ impl<'a> Window<'a> {
             for x in 0..8 * scale {
                 let cx = x / scale;
                 let cy = y / scale;
-                let color = glyph.0[cy][cx];
-                let color =
-                    (color as u32) << 24 |
-                    (color as u32) << 16 |
-                    (color as u32) << 8 |
-                    (color as u32);
+                let weight = glyph.0[cy][cx] as f64 / 255.0;
+                let bg = background * (1.0 - weight);
+                let fg = foreground * weight;
+                let color = fg + bg;
                 
                 self.set_pixel(x + pos.x, y + pos.y, color);
             }
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Color {
+    pub red: u8,
+    pub green: u8,
+    pub blue: u8
+}
+
+impl Color {
+    pub const BLACK: Self = Self::new(0, 0, 0);
+    pub const WHITE: Self = Self::new(0xFF, 0xFF, 0xFF);
+
+    pub const fn new(red: u8, green: u8, blue: u8) -> Self {
+        Self {
+            red,
+            green,
+            blue,
+        }
+    }
+
+    pub const fn to_bgr(&self) -> u32 {
+        (self.red as u32) << 16 |
+        (self.green as u32) << 8 |
+        (self.blue as u32) << 0
+    }
+}
+
+impl core::ops::Mul<f64> for Color {
+    type Output = Color;
+
+    fn mul(self, rhs: f64) -> Self::Output {
+        Self {
+            red: (self.red as f64 * rhs) as u8,
+            green: (self.green as f64 * rhs) as u8,
+            blue: (self.blue as f64 * rhs) as u8,
+        }
+    }
+}
+
+impl core::ops::Add for Color {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            red: self.red + rhs.red,
+            green: self.green + rhs.green,
+            blue: self.blue + rhs.blue,
         }
     }
 }
@@ -232,6 +280,7 @@ impl Display {
         let area = widget.used_area();
         widget.invalidate(area);
         self.widgets.push(widget);
+        self.check_redraw();
     }
 
     /// Sends an event to the widgets.
@@ -287,7 +336,7 @@ impl Display {
     fn clear(&mut self) {
         let mut window: Window = (&mut self.framebuffer).into();
         let rect = window.rect;
-        window.draw_rect(rect, 0);
+        window.draw_rect(rect, Color::new(0, 0, 0));
     }
 }
 
@@ -337,7 +386,9 @@ pub unsafe fn check_redraw() {
     DISPLAY.check_redraw();
 }
 
-
+pub unsafe fn resolution() -> Point {
+    Point::new(DISPLAY.framebuffer.info().horizontal_resolution, DISPLAY.framebuffer.info().vertical_resolution)
+}
 
 
 
