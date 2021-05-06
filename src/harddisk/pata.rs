@@ -225,7 +225,7 @@ pub unsafe fn read_sectors(drive: u8, start_sector: usize, buffer: &mut [u8]) {
             buffer[i * 512 + j * 2] = val[0];
             buffer[i * 512 + j * 2 + 1] = val[1];
         }
-        for _ in 0..MAX_ITER {
+        for _ in 0..MAX_ITER / 100 {
             STATUS_REG.read();
         }
     }
@@ -262,11 +262,11 @@ pub unsafe fn write_sectors(drive: u8, start_sector: usize, buffer: &[u8]) {
         for j in 0..256 {
             let val = u16::from_le_bytes([buffer[i * 512 + j * 2], buffer[i * 512 + j * 2 + 1]]);
             DATA_REG.write(val);
-            for _ in 0..MAX_ITER {
+            for _ in 0..MAX_ITER / 100 {
                 asm!("jmp no_op", "no_op:", options(nostack, nomem));
             }
         }
-        for _ in 0..MAX_ITER {
+        for _ in 0..MAX_ITER / 100 {
             STATUS_REG.read();
         }
     }
@@ -301,13 +301,15 @@ unsafe fn poll() {
             //TODO: error handling
             panic!("Harddisk error")
         } else if !bsy && drq {
+            if MAX_ITER < iter {
+                MAX_ITER = iter;
+            }
             break;
         }
         if iter % MAX_ITER == 0 {
             software_reset();
         }
         if iter % (MAX_ITER * 100) == 0 {
-            MAX_ITER = iter;
             panic!("Hardrive polling time-out")
         }
         iter += 1;
