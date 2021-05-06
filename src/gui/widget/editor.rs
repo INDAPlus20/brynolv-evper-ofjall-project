@@ -2,7 +2,7 @@ use core::fmt::Write;
 
 use crate::{gui::display::{Point, Rect, Window}, svec::SVec};
 
-use super::{Widget, container::Container, initializer::Initializer};
+use super::{Widget, container::Container, initializer::Initializer, super::display::Color};
 use super::Event;
 use super::Response;
 use super::KeyEvent;
@@ -246,14 +246,14 @@ impl Widget for Editor {
                 // There might be invalidated space after a newline, in which case we draw a
                 // rectangle covering the area.
                 // If there isn't an invalidated area here, either the width or height will be 0.
-                window.draw_rect(Rect::new(gpos.x * 8, gpos.y * 16, (end_x.saturating_sub(gpos.x)) * 8, 16), 0);
+                window.draw_rect(Rect::new(gpos.x * 8, gpos.y * 16, (end_x.saturating_sub(gpos.x)) * 8, 16), Color::new(0, 0, 0));
                 gpos.x = 0;
                 gpos.y += 1;
             } else {
                 // If we are in an invalidated area, print the character.
                 // Else, don't.
                 if gpos.x >= start_x && gpos.x < end_x && gpos.y >= start_y && gpos.y < end_y {
-                    window.draw_char(Point::new(gpos.x * 8, gpos.y * 16), 1, c, None);
+                    window.draw_char(Point::new(gpos.x * 8, gpos.y * 16), 1, c, Color::WHITE, Color::BLACK, None);
                 }
                 gpos.x += 1;
                 // Make sure to wrap when hitting the right edge
@@ -268,16 +268,17 @@ impl Widget for Editor {
         // to the rest of the invalidated area.
         if gpos.y < self.height {
             // This is one character row tall
-            window.draw_rect(Rect::new(gpos.x * 8, gpos.y * 16, (end_x.saturating_sub(gpos.x)) * 8, 16), 0);
+            window.draw_rect(Rect::new(gpos.x * 8, gpos.y * 16, (end_x.saturating_sub(gpos.x)) * 8, 16), Color::BLACK);
             // This covers the rest of the invalidated area
-            window.draw_rect(Rect::new(start_x * 8, (gpos.y + 1) * 16, (end_x.saturating_sub(start_x)) * 8, (end_y.saturating_sub(gpos.y + 1)) * 16), 0);
+            window.draw_rect(Rect::new(start_x * 8, (gpos.y + 1) * 16, (end_x.saturating_sub(start_x)) * 8, (end_y.saturating_sub(gpos.y + 1)) * 16), Color::BLACK);
         }
 
         // If the graphical cursor is in the invalidated area, print it too.
         // As this will first get printed over and then reprinted, there might be some flickering.
         if self.graphical_cursor.x >= start_x && self.graphical_cursor.x < end_x && self.graphical_cursor.y >= start_y + self.scroll && self.graphical_cursor.y < end_y + self.scroll {
-            // The cursor is just a 1px thin rectangle sitting just below the baseline.
-            window.draw_rect(Rect::new(self.graphical_cursor.x * 8 + 1, (self.graphical_cursor.y - self.scroll) * 16 + 13, 6, 1), 0xFF);
+            // The cursor is a 1px thin rectangle sitting just below the baseline, with 1px black padding.
+            window.draw_rect(Rect::new(self.graphical_cursor.x * 8, (self.graphical_cursor.y - self.scroll) * 16 + 12, 8, 3), Color::BLACK);
+            window.draw_rect(Rect::new(self.graphical_cursor.x * 8 + 1, (self.graphical_cursor.y - self.scroll) * 16 + 13, 6, 1), Color::WHITE);
         }
 
         // Reset invalidated area and dirty flag.
@@ -340,6 +341,9 @@ impl Widget for Editor {
                         self.delete_char();
                     }
                     Response::Nothing
+                },
+                KeyEvent { keycode: KeyCode::P, modifiers: Modifiers::CTRL, .. } => {
+                    panic!("Panic initiated by ctrl-P");
                 }
                 _ => Response::Nothing
             }
