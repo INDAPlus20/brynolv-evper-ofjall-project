@@ -38,8 +38,11 @@ static mut DRIVE_ADRESS_REG: PortReadOnly<u8> = PortReadOnly::new(CONTROL_BASE_P
 /// Since only one port is used, the two drives on it will have to go one at a time.
 /// TODO: make this per disk
 static BUSY: AtomicBool = AtomicBool::new(false);
+/// What is the maximum `iter` acheived during `poll()`?
+/// Used to compensate for fast/slow CPUs
+static mut MAX_ITER: usize = 1000;
 
-// static mut IDENTIFY_RESULT: [u16; 256] = [0; 256];
+/// Contains the information on the drives/disks
 static mut DRIVES: SVec<DriveInfo, 2> = SVec::new();
 
 /// Intitialize the primary drive bus, and all drives on it.
@@ -199,7 +202,7 @@ pub unsafe fn read_sectors(drive: u8, start_sector: usize, buffer: &mut [u8]) {
         panic!("No support for more than 2 drives")
     }
     if DRIVES[drive as usize].status != DriveStatus::Connected {
-        panic!("Attempt to access non-connected drive")
+        panic!("Attempt to read non-connected drive")
     }
     while BUSY.load(core::sync::atomic::Ordering::Acquire) {}
     BUSY.store(true, core::sync::atomic::Ordering::Release);
@@ -208,32 +211,25 @@ pub unsafe fn read_sectors(drive: u8, start_sector: usize, buffer: &mut [u8]) {
 
     select_drive(drive, lba);
     send_lba_and_sector_count(start_sector, lba, lba48);
+    wait_till_idle();
     if lba48 {
         COMMAND_REG.write(0x24); // READ SECTORS EXT
     } else {
         COMMAND_REG.write(0x20); // READ SECTORS
     }
 
-    // print!("R"); //I do not know why I need a delay here... poll() should be sufficient. //EDIT: No longer appear to be needed, but the "flashing" cursor is, so leaving it here to "explain" why that is.
     for i in 0..buffer.len() / 512 {
         poll();
         for j in 0..256 {
             let val = DATA_REG.read().to_le_bytes();
             buffer[i * 512 + j * 2] = val[0];
             buffer[i * 512 + j * 2 + 1] = val[1];
-            /*if j % 2 == 0 {
-                print!(" "); //It's... a delay...
-            } else {
-                print!("\x08");
-            }*/
         }
-        STATUS_REG.read();
-        STATUS_REG.read();
-        STATUS_REG.read();
-        STATUS_REG.read();
+        for _ in 0..MAX_ITER {
+            STATUS_REG.read();
+        }
     }
     wait_till_idle();
-    // print!("\x08");
     BUSY.store(false, core::sync::atomic::Ordering::Release);
 }
 
@@ -254,35 +250,30 @@ pub unsafe fn write_sectors(drive: u8, start_sector: usize, buffer: &[u8]) {
 
     select_drive(drive, lba);
     send_lba_and_sector_count(start_sector, lba, lba48);
+    wait_till_idle();
     if lba48 {
         COMMAND_REG.write(0x34); // WRITE SECTORS EXT
     } else {
         COMMAND_REG.write(0x30) // WRITE SECTORS
     }
 
-    // print!("W"); //Ditto as reading
     for i in 0..buffer.len() / 512 {
         poll();
         for j in 0..256 {
             let val = u16::from_le_bytes([buffer[i * 512 + j * 2], buffer[i * 512 + j * 2 + 1]]);
             DATA_REG.write(val);
-            /*if j % 2 == 0 {
-                print!(" "); //It's... a delay...
-            } else {
-                print!("\x08");
-            }*/
-            asm!("jmp no_op", "no_op:", options(nostack, nomem));
+            for _ in 0..MAX_ITER {
+                asm!("jmp no_op", "no_op:", options(nostack, nomem));
+            }
         }
-        STATUS_REG.read();
-        STATUS_REG.read();
-        STATUS_REG.read();
-        STATUS_REG.read();
+        for _ in 0..MAX_ITER {
+            STATUS_REG.read();
+        }
     }
     wait_till_idle();
     //Flush cache
     COMMAND_REG.write(0xE7);
     wait_till_idle();
-    // print!("\x08");
     BUSY.store(false, core::sync::atomic::Ordering::Release);
 }
 
@@ -312,10 +303,11 @@ unsafe fn poll() {
         } else if !bsy && drq {
             break;
         }
-        if iter % 100 == 0 {
+        if iter % MAX_ITER == 0 {
             software_reset();
         }
-        if iter % 1000 == 0 {
+        if iter % (MAX_ITER * 100) == 0 {
+            MAX_ITER = iter;
             panic!("Hardrive polling time-out")
         }
         iter += 1;
