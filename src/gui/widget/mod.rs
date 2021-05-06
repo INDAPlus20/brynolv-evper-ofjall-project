@@ -1,14 +1,22 @@
 
-pub mod printer;
+pub mod editor;
+mod container;
+mod initializer;
 
 use core::any::Any;
 
 use crate::ps2_keyboard::KeyEvent;
 
-use super::display::{Rect, Window};
+use super::display::{Point, Rect, Window};
 
 
 pub trait Widget {
+    type InitData = ();
+
+    /// Initializes the widget with a size and possible extra data.
+    /// This function must be safe to call multiple times.
+    fn initialize(&mut self, size: Point, init_data: Self::InitData);
+
     /// Draw the widget to the given window.
     /// The widget decides which parts of itself needs redrawing.
     fn draw(&mut self, window: Window);
