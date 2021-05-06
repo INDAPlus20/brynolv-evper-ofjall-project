@@ -21,8 +21,8 @@ jobs:
     - uses: actions-rs/toolchain@v1
       with:
         profile: minimal
-        toolchain: nightly-2021-04-28
+        toolchain: nightly
         override: true
-    - run: rustup component add rustfmt
+    - run: rustup component add rustfmt --toolchain nightly
     - name: rustfmt
-      run: cargo fmt --all -- --check
+      run: cargo +nightly fmt --all -- --check
