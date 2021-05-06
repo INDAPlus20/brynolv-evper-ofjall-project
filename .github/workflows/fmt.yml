@@ -26,4 +26,3 @@ jobs:
     - run: rustup component add rustfmt
     - name: rustfmt
       run: cargo fmt --all -- --check
-name
