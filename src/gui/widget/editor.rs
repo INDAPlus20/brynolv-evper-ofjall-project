@@ -202,12 +202,94 @@ impl Editor {
         self.logical_cursor += 1;
         self.invalidate(Rect::new(self.graphical_cursor.x * 8, (self.graphical_cursor.y - self.scroll) * 16, 8, 16));
     }
+
+    fn cursor_up(&mut self) {
+        self.invalidate(Rect::new(self.graphical_cursor.x * 8, (self.graphical_cursor.y - self.scroll) * 16, 8, 16));
+        assert!(self.logical_cursor > 0);
+
+        let target_x = self.graphical_cursor.x;
+        let start_of_current_line = self.logical_cursor - target_x;
+        if start_of_current_line == 0 {
+            self.logical_cursor = 0;
+            self.graphical_cursor.x = 0;
+        } else {
+            if self.char_buffer[start_of_current_line - 1] == '\n' {
+                let start_of_logical_line = if let Some(prev_nl) = self.get_prev_newline(start_of_current_line - 1) {
+                    prev_nl + 1
+                } else {
+                    0
+                };
+
+                let logical_line_length = start_of_current_line - start_of_logical_line;
+                let graphical_line_length = logical_line_length % self.width;
+                let target_x = target_x.min(graphical_line_length);
+                if graphical_line_length <= target_x {
+                    self.logical_cursor = start_of_current_line - 1;
+                    self.graphical_cursor.x = graphical_line_length - 1;
+                    self.graphical_cursor.y -= 1;
+                } else {
+                    self.logical_cursor = start_of_current_line - (graphical_line_length - target_x);
+                    self.graphical_cursor.y -= 1;
+                }
+            } else {
+                self.logical_cursor -= self.width;
+                self.graphical_cursor.y -= 1;
+            }
+        }
+        self.invalidate(Rect::new(self.graphical_cursor.x * 8, (self.graphical_cursor.y - self.scroll) * 16, 8, 16));
+    }
+
+    fn cursor_down(&mut self) {
+        assert!(self.logical_cursor < self.char_buffer.len());
+        self.invalidate(Rect::new(self.graphical_cursor.x * 8, (self.graphical_cursor.y - self.scroll) * 16, 8, 16));
+
+        let start_of_current_graphical_line = self.logical_cursor - self.graphical_cursor.x;
+        if let Some(next_nl) = self.get_next_newline(self.logical_cursor) {
+            if next_nl - start_of_current_graphical_line >= self.width {
+                let next_line_length = (next_nl - start_of_current_graphical_line) - self.width;
+                if next_line_length <= self.graphical_cursor.x {
+                    self.logical_cursor = next_nl;
+                    self.graphical_cursor.x = next_line_length;
+                    self.graphical_cursor.y += 1;
+                } else {
+                    self.logical_cursor += self.width;
+                    self.graphical_cursor.y += 1;
+                }
+            } else {
+                let start_of_next_logical_line = next_nl + 1;
+                let next_logical_line_length = self.get_next_newline(start_of_next_logical_line).unwrap_or(self.char_buffer.len()) - start_of_next_logical_line;
+                if next_logical_line_length <= self.graphical_cursor.x {
+                    self.logical_cursor = start_of_next_logical_line + next_logical_line_length;
+                    self.graphical_cursor.x = next_logical_line_length;
+                    self.graphical_cursor.y += 1;
+                } else {
+                    self.logical_cursor = start_of_next_logical_line + self.graphical_cursor.x;
+                    self.graphical_cursor.y += 1;
+                }
+            }
+        } else {
+            let end_of_logical_line = self.char_buffer.len();
+            let start_of_graphical_line = self.logical_cursor - self.graphical_cursor.x;
+            let line_length = end_of_logical_line - start_of_graphical_line;
+            if line_length <= self.width + self.graphical_cursor.x {
+                self.logical_cursor = self.char_buffer.len();
+                self.graphical_cursor.x = line_length % self.width;
+                if line_length >= self.width {
+                    self.graphical_cursor.y += 1;
+                }
+            } else {
+                self.logical_cursor += self.width;
+                self.graphical_cursor.y += 1;
+            }
+        }
+        self.invalidate(Rect::new(self.graphical_cursor.x * 8, (self.graphical_cursor.y - self.scroll) * 16, 8, 16));
+    }
 }
 
 impl Widget for Editor {
     fn initialize(&mut self, size: Point, _: ()) {
         self.width = size.x / 8;
-        self.height = size.y / 16;
+        self.height = size.y / 16 - 1;
         self.scroll = 0;
 
         self.char_buffer.clear_without_drop();
@@ -281,6 +363,14 @@ impl Widget for Editor {
             window.draw_rect(Rect::new(self.graphical_cursor.x * 8 + 1, (self.graphical_cursor.y - self.scroll) * 16 + 13, 6, 1), Color::WHITE);
         }
 
+        let mut bottom_bar = SVec::<char, 128>::new();
+        write!(bottom_bar, "{:3} -- {:3} : {:3} -- {:3}", self.logical_cursor, self.graphical_cursor.x, self.graphical_cursor.y, self.char_buffer.len()).unwrap();
+
+        window.draw_rect(Rect::new(0, self.height * 16, self.width * 8, 16), Color::new(0x44, 0x44, 0x44));
+        for (i, c) in bottom_bar.get_slice().iter().enumerate() {
+            window.draw_char(Point::new(i * 8, self.height * 16), 1, *c, Color::WHITE, Color::new(0x44, 0x44, 0x44), None);
+        }
+
         // Reset invalidated area and dirty flag.
         self.invalidated = Rect::new(0, 0, 0, 0);
         self.dirty = false;
@@ -295,7 +385,7 @@ impl Widget for Editor {
             x: 0,
             y: 0,
             width: self.width * 8,
-            height: self.height * 16
+            height: self.height * 16 + 16
         }
     }
 
@@ -326,6 +416,18 @@ impl Widget for Editor {
                 KeyEvent { keycode: KeyCode::Right, modifiers: Modifiers::NONE, .. } => {
                     if self.logical_cursor < self.char_buffer.len() {
                         self.cursor_right();
+                    }
+                    Response::Nothing
+                },
+                KeyEvent { keycode: KeyCode::Up, modifiers: Modifiers::NONE, .. } => {
+                    if self.logical_cursor > 0 {
+                        self.cursor_up();
+                    }
+                    Response::Nothing
+                },
+                KeyEvent { keycode: KeyCode::Down, modifiers: Modifiers::NONE, .. } => {
+                    if self.logical_cursor < self.char_buffer.len() {
+                        self.cursor_down();
                     }
                     Response::Nothing
                 },
