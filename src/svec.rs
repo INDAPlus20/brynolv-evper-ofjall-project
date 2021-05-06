@@ -66,6 +66,20 @@ impl<T, const N: usize> SVec<T, N> {
         }
     }
 
+    pub fn insert(&mut self, index: usize, value: T) {
+        if index > self.len() {
+            panic!("Index out of bounds")
+        } else if index == self.len() {
+            self.push(value);
+        } else {
+            unsafe {
+                core::ptr::copy(&self.inner[index], &mut self.inner[index + 1], self.len() - index);
+            }
+            self.inner[index] = MaybeUninit::new(value);
+            self.length += 1;
+        }
+    }
+
     pub fn clear(&mut self) {
         while self.length > 0 {
             self.length -= 1;
