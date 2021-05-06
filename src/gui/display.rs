@@ -57,7 +57,7 @@ pub struct Window<'a> {
 }
 
 impl<'a> Window<'a> {
-    pub fn subwindow<'b>(&'a mut self, rect: Rect) -> Window<'b> where 'a : 'b {
+    pub fn subwindow<'b, 'c>(&'c mut self, rect: Rect) -> Window<'b> where 'a: 'b, 'c : 'b {
         assert!(rect.x + rect.width <= self.rect.width);
         assert!(rect.y + rect.height <= self.rect.height);
         Self {
@@ -69,7 +69,10 @@ impl<'a> Window<'a> {
             },
             buffer_width: self.buffer_width,
             buffer_height: self.buffer_height,
-            buffer: self.buffer,
+            buffer: unsafe {
+                let ptr = self.buffer as *mut [u32];
+                &mut *ptr
+            },
         }
     }
 
@@ -91,11 +94,10 @@ impl<'a> Window<'a> {
     pub fn draw_rect(&mut self, mut rect: Rect, color: u32) {
         assert!(rect.x + rect.width <= self.rect.width);
         assert!(rect.y + rect.height <= self.rect.width);
-        rect.x += self.rect.x;
-        rect.y += self.rect.y;
+        
         for y in rect.y..rect.y + rect.height {
             for x in rect.x..rect.x + rect.width {
-                self.set_pixel(x, y, 0);
+                self.set_pixel(x, y, color);
             }
         }
     }
@@ -147,9 +149,21 @@ pub struct Rect {
 }
 
 impl Rect {
+    pub const EMPTY: Self = Self::new(0, 0, 0, 0);
+
     pub const fn new(x: usize, y: usize, width: usize, height: usize) -> Self { Self { x, y, width, height } }
+    
+    pub const fn is_empty(&self) -> bool {
+        self.width == 0 || self.height == 0
+    }
+
+    pub const fn contains(&self, point: Point) -> bool {
+        point.x >= self.x && point.x < self.x + self.width && point.y >= self.y && point.y < self.y + self.height
+    }
 
     pub const fn smallest_containing(a: Rect, b: Rect) -> Rect {
+        if a.is_empty() { return b; }
+        if b.is_empty() { return a; }
         const fn min(a: usize, b: usize) -> usize {
             if a < b { a } else { b }
         }
@@ -163,6 +177,28 @@ impl Rect {
         let bottom = max(a.y + a.height, b.y + b.height);
         Rect::new(left, top, right - left, bottom - top)
     }
+
+    pub const fn intersection(a: Rect, b: Rect) -> Rect {
+        const fn min(a: usize, b: usize) -> usize {
+            if a < b { a } else { b }
+        }
+        const fn max(a: usize, b: usize) -> usize {
+            if a > b { a } else { b }
+        }
+
+        let left = max(a.x, b.x);
+        let right = min(a.x + a.width, b.x + b.width);
+        let top = max(a.y, b.y);
+        let bottom = min(a.y + a.height, b.y + b.height);
+
+        let width = right.saturating_sub(left);
+        let height = bottom.saturating_sub(top);
+        if height == 0 || width == 0 {
+            Rect::new(0, 0, 0, 0)
+        } else {
+            Rect::new(left, top, width, height)
+        }
+    }
 }
 
 static mut DISPLAY: Display = unsafe { Display::uinitialized() };
@@ -170,7 +206,7 @@ static mut DISPLAY: Display = unsafe { Display::uinitialized() };
 /// The engine of the GUI system.
 struct Display {
     framebuffer: FrameBuffer,
-    widgets: SVec<&'static mut dyn Widget, 16>
+    widgets: SVec<&'static mut dyn Widget<InitData=()>, 16>
 }
 
 impl Display {
@@ -192,7 +228,9 @@ impl Display {
     /// # Panics
     ///
     /// Panics if the widget list is full.
-    pub fn add_widget(&mut self, widget: &'static mut dyn Widget) {
+    pub fn add_widget(&mut self, widget: &'static mut dyn Widget<InitData=()>) {
+        let area = widget.used_area();
+        widget.invalidate(area);
         self.widgets.push(widget);
     }
 
@@ -276,14 +314,14 @@ impl<'a> From<&'a mut FrameBuffer> for Window<'a> {
     }
 }
 
-pub unsafe fn initialize(framebuffer: FrameBuffer) {
+pub(super) unsafe fn initialize(framebuffer: FrameBuffer) {
     let cw = framebuffer.info().horizontal_resolution / 8;
     let ch = framebuffer.info().vertical_resolution / 16;
     DISPLAY.framebuffer = framebuffer;
     DISPLAY.widgets.clear_without_drop();
 }
 
-pub unsafe fn add_widget(widget: &'static mut dyn Widget) {
+pub unsafe fn add_initialized_widget(widget: &'static mut dyn Widget<InitData=()>) {
     DISPLAY.add_widget(widget)
 }
 

@@ -12,6 +12,7 @@
 #![feature(const_fn)]
 #![feature(const_option)]
 #![feature(option_result_unwrap_unchecked)]
+#![feature(associated_type_defaults)]
 
 extern crate rlibc;
 
@@ -37,23 +38,10 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
     // No function call may precede this one, or else undefined behaviour may be invoked.
     initialize(boot_info);
 
-    // println!("Hello, World!");
-    unsafe {
-        gui::display::send_event(Event::Custom("print", &"Hello, World!\n"));
-    }
-
     loop {
         let event = ps2_keyboard::get_key_event();
-        if let Some(char) = event.char {
-            unsafe { gui::display::send_event(Event::Custom("print", &char)); }
-            // print!("{}", char);
-        } else {
-            unsafe {
-                gui::display::send_event(Event::KeyEvent(event));
-            }
-            // if event.keycode == KeyCode::Backspace {
-            //     print!("\x08");
-            // }
+        unsafe {
+            gui::display::send_event(Event::KeyEvent(event));
         }
     }
 }
@@ -86,7 +74,7 @@ fn initialize(boot_info: &BootInfo) {
             // printer::force_redraw();
             printer::clear();
 
-            gui::display::initialize(core::ptr::read(boot_info.framebuffer.as_ref().unwrap()));
+            gui::initialize(core::ptr::read(boot_info.framebuffer.as_ref().unwrap()));
             
             pic::initialize();
             x86_64::instructions::interrupts::enable();
