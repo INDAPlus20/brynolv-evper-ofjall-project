@@ -1,7 +1,8 @@
 
 pub mod editor;
-mod container;
-mod initializer;
+pub mod container;
+pub mod initializer;
+pub mod message_box;
 
 use core::any::Any;
 
@@ -38,9 +39,7 @@ pub trait Widget {
     }
 
     /// Returns wether the widget needs redrawing.
-    fn dirty(&self) -> bool {
-        false
-    }
+    fn dirty(&self) -> bool ;
 }
 
 /// Returned from `Widget::on_event`. Specifies how the GUI system should proceed.
