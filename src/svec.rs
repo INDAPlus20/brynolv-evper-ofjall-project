@@ -1,4 +1,4 @@
-use core::{mem::MaybeUninit, ops::{Index, IndexMut}};
+use core::{fmt::Write, mem::MaybeUninit, ops::{Index, IndexMut}};
 
 
 
@@ -147,5 +147,23 @@ impl<T, const N: usize> Drop for SVec<T, N> {
         for item in self.get_slice_mut() {
             core::mem::drop(item);
         }
+    }
+}
+
+impl<const N: usize> Write for SVec<char, N> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        for c in s.chars() {
+            self.push(c);
+        }
+        Ok(())
+    }
+}
+
+impl<const N: usize> Write for SVec<u8, N> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        for b in s.bytes() {
+            self.push(b);
+        }
+        Ok(())
     }
 }
