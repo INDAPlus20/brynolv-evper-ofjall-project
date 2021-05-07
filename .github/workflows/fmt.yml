@@ -1,0 +1,28 @@
+﻿name: Formating
+
+on:
+  push:
+    paths:
+      - '**.rs'
+  pull_request:
+    paths:
+      - '**.rs'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  cargo-fmt:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: nightly
+        override: true
+    - run: rustup component add rustfmt --toolchain nightly
+    - name: rustfmt
+      run: cargo +nightly fmt --all -- --check
