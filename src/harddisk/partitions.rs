@@ -40,23 +40,23 @@ const NUM_PARTITIONS:usize = 16;
 static mut PARTITIONS: SVec<Partition, NUM_PARTITIONS> = SVec::new();
 
 pub struct Partition {
-    drive: u8,
-    partition_guid: [u8; 16],
-    start_sector: usize,
-    sector_count: usize,
-    name: SVec<char, { 72 / 2 }>
+	drive: u8,
+	partition_guid: [u8; 16],
+	start_sector: usize,
+	sector_count: usize,
+	name: SVec<char, { 72 / 2 }>
 }
 
 impl Partition {
-    pub fn drive(&self) -> u8 {
-        self.drive
-    }
-    pub fn start_sector(&self) -> usize {
-        self.sector_count
-    }
-    pub fn sector_count(&self) -> usize {
-        self.sector_count
-    }
+	pub fn drive(&self) -> u8 {
+		self.drive
+	}
+	pub fn start_sector(&self) -> usize {
+		self.sector_count
+	}
+	pub fn sector_count(&self) -> usize {
+		self.sector_count
+	}
 }
 
 /// Initializes and populates the partition information array for disk 0
@@ -67,137 +67,137 @@ impl Partition {
 ///
 /// The module 'pata' must be initialized before this function is called
 pub unsafe fn initialize() {
-    let mut buf= [0 as u8;512];
+	let mut buf= [0 as u8;512];
 
-    // Read GPT Header from disk (sector 1)
-    pata::read_sectors(0, 1, &mut buf);
-    // Make sure it's a GPT header
-    if !buf.starts_with(&[0x45, 0x46, 0x49, 0x20, 0x50, 0x41, 0x52, 0x54]) {
-        panic!("No GUID Partition Table found on disk");
-    }
+	// Read GPT Header from disk (sector 1)
+	pata::read_sectors(0, 1, &mut buf);
+	// Make sure it's a GPT header
+	if !buf.starts_with(&[0x45, 0x46, 0x49, 0x20, 0x50, 0x41, 0x52, 0x54]) {
+		panic!("No GUID Partition Table found on disk");
+	}
 
-    // Assuming the data exists and that it's correct for now
-    // Might want to compare checksums etc
+	// Assuming the data exists and that it's correct for now
+	// Might want to compare checksums etc
 
-    // Start sector for partition entries
-    let start_sector = usize::from_le_bytes([buf[0x48], buf[0x49], buf[0x4A], buf[0x4B], buf[0x4C], buf[0x4D], buf[0x4E], buf[0x4F]]);
-    // Number of partition entries. Currently not used.. hard coded to max 16 partitions for now
-    //let num_partition_entries = u32::from_le_bytes([buf[0x50], buf[0x51], buf[0x52], buf[0x53]]);
-    // Size of partition entry
-    let partition_entry_size = u32::from_le_bytes([buf[0x54], buf[0x55], buf[0x56], buf[0x57]]);
+	// Start sector for partition entries
+	let start_sector = usize::from_le_bytes([buf[0x48], buf[0x49], buf[0x4A], buf[0x4B], buf[0x4C], buf[0x4D], buf[0x4E], buf[0x4F]]);
+	// Number of partition entries. Currently not used.. hard coded to max 16 partitions for now
+	//let num_partition_entries = u32::from_le_bytes([buf[0x50], buf[0x51], buf[0x52], buf[0x53]]);
+	// Size of partition entry
+	let partition_entry_size = u32::from_le_bytes([buf[0x54], buf[0x55], buf[0x56], buf[0x57]]);
 
-    //println!("Start sector for partition entries: {}", start_sector);
-    //println!("Number of partition entries: {}", num_partition_entries);
-    //println!("Size of a partition entry: {}", partition_entry_size);
-    //print!("\n");
+	//println!("Start sector for partition entries: {}", start_sector);
+	//println!("Number of partition entries: {}", num_partition_entries);
+	//println!("Size of a partition entry: {}", partition_entry_size);
+	//print!("\n");
 
-    // Read partition entries (only the first 16 for now)
-    let num_entries_per_slice = 512 / partition_entry_size;
-    let last_sector = start_sector + (NUM_PARTITIONS / num_entries_per_slice as usize);
-    let mut drive: u8 = 0;
-    for s in start_sector..last_sector {
-        // Read disk sector
-        pata::read_sectors(0, s, &mut buf);
-        // Read individual partition entry
-        for p in 0..num_entries_per_slice {
-            let base_offset:usize = (partition_entry_size * p) as usize;
-            let mut offset = base_offset;
+	// Read partition entries (only the first 16 for now)
+	let num_entries_per_slice = 512 / partition_entry_size;
+	let last_sector = start_sector + (NUM_PARTITIONS / num_entries_per_slice as usize);
+	let mut drive: u8 = 0;
+	for s in start_sector..last_sector {
+		// Read disk sector
+		pata::read_sectors(0, s, &mut buf);
+		// Read individual partition entry
+		for p in 0..num_entries_per_slice {
+			let base_offset:usize = (partition_entry_size * p) as usize;
+			let mut offset = base_offset;
 
-            // Read partition type
-            let mut partition_type_guid = [0 as u8;16];
-            partition_type_guid.copy_from_slice(&buf[offset..offset+0x10]);
-            // Skip unused entries
-            if partition_type_guid == [0;16] {
-                continue;
-            }
+			// Read partition type
+			let mut partition_type_guid = [0 as u8;16];
+			partition_type_guid.copy_from_slice(&buf[offset..offset+0x10]);
+			// Skip unused entries
+			if partition_type_guid == [0;16] {
+				continue;
+			}
 
-            // Read partition guid
-            offset = base_offset + 0x10;
-            let mut partition_guid = [0 as u8;16];
-            partition_guid.copy_from_slice(&buf[offset..offset+0x10]);
+			// Read partition guid
+			offset = base_offset + 0x10;
+			let mut partition_guid = [0 as u8;16];
+			partition_guid.copy_from_slice(&buf[offset..offset+0x10]);
 
-            // Read first and last sector
-            offset = base_offset + 0x20;
-            let start_sector = usize::from_le_bytes([buf[offset], buf[offset+1], buf[offset+2], buf[offset+3], buf[offset+4], buf[offset+5], buf[offset+6], buf[offset+7]]);
-            offset = base_offset + 0x28;
-            let last_sector = usize::from_le_bytes([buf[offset], buf[offset+1], buf[offset+2], buf[offset+3], buf[offset+4], buf[offset+5], buf[offset+6], buf[offset+7]]);
+			// Read first and last sector
+			offset = base_offset + 0x20;
+			let start_sector = usize::from_le_bytes([buf[offset], buf[offset+1], buf[offset+2], buf[offset+3], buf[offset+4], buf[offset+5], buf[offset+6], buf[offset+7]]);
+			offset = base_offset + 0x28;
+			let last_sector = usize::from_le_bytes([buf[offset], buf[offset+1], buf[offset+2], buf[offset+3], buf[offset+4], buf[offset+5], buf[offset+6], buf[offset+7]]);
 
-            // Read name
-            let mut name: SVec<char, { 72 / 2 }> = SVec::new();
-            offset = base_offset + 0x38;
-            for _n in 0..36 {
-                let c = u16::from_le_bytes([buf[offset], buf[offset+1]]);
-                if c == 0x0000 {
-                    break;
-                }
-                offset += 2;
-                name.push(char::from_u32(c as u32).unwrap());
-            }
+			// Read name
+			let mut name: SVec<char, { 72 / 2 }> = SVec::new();
+			offset = base_offset + 0x38;
+			for _n in 0..36 {
+				let c = u16::from_le_bytes([buf[offset], buf[offset+1]]);
+				if c == 0x0000 {
+					break;
+				}
+				offset += 2;
+				name.push(char::from_u32(c as u32).unwrap());
+			}
 
-            // Make partition entry
-            let entry = Partition {
-                drive,
-                partition_guid,
-                start_sector,
-                sector_count: (last_sector-start_sector),
-                name
-            };
+			// Make partition entry
+			let entry = Partition {
+				drive,
+				partition_guid,
+				start_sector,
+				sector_count: (last_sector-start_sector),
+				name
+			};
 
-            //println!("drive: {}", drive);
-            //println!("partition guid: {:X?}", partition_guid);
-            //println!("start sector: {}", start_sector);
-            //println!("sector count: {}", last_sector-start_sector);
-            //print!("Name: ");
-            //for i in 0..entry.name.len() {
-            //    print!("{}", entry.name[i]);
-            //}
-            //print!("\n");
+			//println!("drive: {}", drive);
+			//println!("partition guid: {:X?}", partition_guid);
+			//println!("start sector: {}", start_sector);
+			//println!("sector count: {}", last_sector-start_sector);
+			//print!("Name: ");
+			//for i in 0..entry.name.len() {
+			//    print!("{}", entry.name[i]);
+			//}
+			//print!("\n");
 
-            // Push to partition list
-            PARTITIONS.push(entry);
+			// Push to partition list
+			PARTITIONS.push(entry);
 
-            // Increase drive index
-            drive += 1;
-        }
-    }
+			// Increase drive index
+			drive += 1;
+		}
+	}
 }
 
 pub unsafe fn list_partitions() -> &'static[Partition] {
-    return PARTITIONS.get_slice();
+	return PARTITIONS.get_slice();
 }
 
 /// Reads sectors from specified partition
 /// start_sector starts at 0
 pub unsafe fn read_sectors(drive: u8, start_sector: usize, buffer: &mut [u8]) {
-    if buffer.len() % 512 != 0 {
-        panic!("Buffer must be a multiple of 512 bytes");
-    }
+	if buffer.len() % 512 != 0 {
+		panic!("Buffer must be a multiple of 512 bytes");
+	}
 
-    let sector_count = PARTITIONS[drive as usize].sector_count;
-    if start_sector >= sector_count {
-        panic!("sector out of range");
-    }
+	let sector_count = PARTITIONS[drive as usize].sector_count;
+	if start_sector >= sector_count {
+		panic!("sector out of range");
+	}
 
-    let sector = PARTITIONS[drive as usize].start_sector + start_sector;
-    pata::read_sectors(drive, sector, buffer);
+	let sector = PARTITIONS[drive as usize].start_sector + start_sector;
+	pata::read_sectors(drive, sector, buffer);
 }
 
 // Writes sectors to specified partition
 /// start_sector starts at 0
 pub unsafe fn write_sectors(drive: u8, start_sector: usize, buffer: &[u8]) {
-    if buffer.len() % 512 != 0 {
-        panic!("Buffer must be a multiple of 512 bytes");
-    }
+	if buffer.len() % 512 != 0 {
+		panic!("Buffer must be a multiple of 512 bytes");
+	}
 
-    if buffer.len() % 512 != 0 {
-        panic!("Buffer must be a multiple of 512 bytes");
-    }
+	if buffer.len() % 512 != 0 {
+		panic!("Buffer must be a multiple of 512 bytes");
+	}
 
-    let sector_count = PARTITIONS[drive as usize].sector_count;
-    if start_sector >= sector_count {
-        panic!("sector out of range");
-    }
+	let sector_count = PARTITIONS[drive as usize].sector_count;
+	if start_sector >= sector_count {
+		panic!("sector out of range");
+	}
 
-    let sector = PARTITIONS[drive as usize].start_sector + start_sector;
-    pata::write_sectors(drive, sector, buffer);
+	let sector = PARTITIONS[drive as usize].start_sector + start_sector;
+	pata::write_sectors(drive, sector, buffer);
 }
