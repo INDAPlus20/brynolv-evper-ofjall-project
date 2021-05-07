@@ -236,6 +236,11 @@ impl Editor {
                 self.graphical_cursor.y -= 1;
             }
         }
+
+        while self.graphical_cursor.y < self.scroll {
+            self.scroll_up();
+        }
+
         self.invalidate(Rect::new(self.graphical_cursor.x * 8, (self.graphical_cursor.y - self.scroll) * 16, 8, 16));
     }
 
@@ -282,6 +287,11 @@ impl Editor {
                 self.graphical_cursor.y += 1;
             }
         }
+
+        while self.graphical_cursor.y >= self.scroll + self.height {
+            self.scroll_down();
+        }
+        
         self.invalidate(Rect::new(self.graphical_cursor.x * 8, (self.graphical_cursor.y - self.scroll) * 16, 8, 16));
     }
 }

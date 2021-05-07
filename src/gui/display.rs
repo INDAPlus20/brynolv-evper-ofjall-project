@@ -117,10 +117,15 @@ impl<'a> Window<'a> {
             for x in 0..8 * scale {
                 let cx = x / scale;
                 let cy = y / scale;
-                let weight = glyph.0[cy][cx] as f64 / 255.0;
-                let bg = background * (1.0 - weight);
-                let fg = foreground * weight;
-                let color = fg + bg;
+                // let weight = glyph.0[cy][cx] as f64 / 255.0;
+                // let bg = background * (1.0 - weight);
+                // let fg = foreground * weight;
+                // let color = fg + bg;
+                let color = if glyph.0[cy][cx] > 0xFF / 2 {
+                    foreground
+                } else {
+                    background
+                };
                 
                 self.set_pixel(x + pos.x, y + pos.y, color);
             }
