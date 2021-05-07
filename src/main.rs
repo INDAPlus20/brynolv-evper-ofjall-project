@@ -7,6 +7,7 @@
 #![feature(maybe_uninit_extra)]
 #![feature(maybe_uninit_ref)]
 #![feature(non_ascii_idents)]
+#![feature(asm)]
 
 extern crate rlibc;
 
