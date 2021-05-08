@@ -1,5 +1,4 @@
-use crate::svec::SVec;
-use crate::harddisk::pata;
+use crate::{harddisk::pata, svec::SVec};
 
 // Layouts from OSDev wiki: https://wiki.osdev.org/GPT
 //
@@ -35,7 +34,7 @@ use crate::harddisk::pata;
 // 0x30 (8) - Attribute flags
 // 0x38 (72) - Partition name
 
-const NUM_PARTITIONS:usize = 16;
+const NUM_PARTITIONS: usize = 16;
 
 static mut PARTITIONS: SVec<Partition, NUM_PARTITIONS> = SVec::new();
 
@@ -44,30 +43,32 @@ pub struct Partition {
 	partition_guid: [u8; 16],
 	start_sector: usize,
 	sector_count: usize,
-	name: SVec<char, { 72 / 2 }>
+	name: SVec<char, { 72 / 2 }>,
 }
 
 impl Partition {
 	pub fn drive(&self) -> u8 {
 		self.drive
 	}
+
 	pub fn start_sector(&self) -> usize {
 		self.sector_count
 	}
+
 	pub fn sector_count(&self) -> usize {
 		self.sector_count
 	}
 }
 
 /// Initializes and populates the partition information array for disk 0
-/// 
+///
 /// # Safety
 ///
-/// Assumes sector size is 512 bytes 
+/// Assumes sector size is 512 bytes
 ///
 /// The module 'pata' must be initialized before this function is called
 pub unsafe fn initialize() {
-	let mut buf= [0 as u8;512];
+	let mut buf = [0 as u8; 512];
 
 	// Read GPT Header from disk (sector 1)
 	pata::read_sectors(0, 1, &mut buf);
@@ -80,7 +81,9 @@ pub unsafe fn initialize() {
 	// Might want to compare checksums etc
 
 	// Start sector for partition entries
-	let start_sector = usize::from_le_bytes([buf[0x48], buf[0x49], buf[0x4A], buf[0x4B], buf[0x4C], buf[0x4D], buf[0x4E], buf[0x4F]]);
+	let start_sector = usize::from_le_bytes([
+		buf[0x48], buf[0x49], buf[0x4A], buf[0x4B], buf[0x4C], buf[0x4D], buf[0x4E], buf[0x4F],
+	]);
 	// Number of partition entries. Currently not used.. hard coded to max 16 partitions for now
 	//let num_partition_entries = u32::from_le_bytes([buf[0x50], buf[0x51], buf[0x52], buf[0x53]]);
 	// Size of partition entry
@@ -100,33 +103,51 @@ pub unsafe fn initialize() {
 		pata::read_sectors(0, s, &mut buf);
 		// Read individual partition entry
 		for p in 0..num_entries_per_slice {
-			let base_offset:usize = (partition_entry_size * p) as usize;
+			let base_offset: usize = (partition_entry_size * p) as usize;
 			let mut offset = base_offset;
 
 			// Read partition type
-			let mut partition_type_guid = [0 as u8;16];
-			partition_type_guid.copy_from_slice(&buf[offset..offset+0x10]);
+			let mut partition_type_guid = [0 as u8; 16];
+			partition_type_guid.copy_from_slice(&buf[offset..offset + 0x10]);
 			// Skip unused entries
-			if partition_type_guid == [0;16] {
+			if partition_type_guid == [0; 16] {
 				continue;
 			}
 
 			// Read partition guid
 			offset = base_offset + 0x10;
-			let mut partition_guid = [0 as u8;16];
-			partition_guid.copy_from_slice(&buf[offset..offset+0x10]);
+			let mut partition_guid = [0 as u8; 16];
+			partition_guid.copy_from_slice(&buf[offset..offset + 0x10]);
 
 			// Read first and last sector
 			offset = base_offset + 0x20;
-			let start_sector = usize::from_le_bytes([buf[offset], buf[offset+1], buf[offset+2], buf[offset+3], buf[offset+4], buf[offset+5], buf[offset+6], buf[offset+7]]);
+			let start_sector = usize::from_le_bytes([
+				buf[offset],
+				buf[offset + 1],
+				buf[offset + 2],
+				buf[offset + 3],
+				buf[offset + 4],
+				buf[offset + 5],
+				buf[offset + 6],
+				buf[offset + 7],
+			]);
 			offset = base_offset + 0x28;
-			let last_sector = usize::from_le_bytes([buf[offset], buf[offset+1], buf[offset+2], buf[offset+3], buf[offset+4], buf[offset+5], buf[offset+6], buf[offset+7]]);
+			let last_sector = usize::from_le_bytes([
+				buf[offset],
+				buf[offset + 1],
+				buf[offset + 2],
+				buf[offset + 3],
+				buf[offset + 4],
+				buf[offset + 5],
+				buf[offset + 6],
+				buf[offset + 7],
+			]);
 
 			// Read name
 			let mut name: SVec<char, { 72 / 2 }> = SVec::new();
 			offset = base_offset + 0x38;
 			for _n in 0..36 {
-				let c = u16::from_le_bytes([buf[offset], buf[offset+1]]);
+				let c = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
 				if c == 0x0000 {
 					break;
 				}
@@ -139,8 +160,8 @@ pub unsafe fn initialize() {
 				drive,
 				partition_guid,
 				start_sector,
-				sector_count: (last_sector-start_sector),
-				name
+				sector_count: (last_sector - start_sector),
+				name,
 			};
 
 			//println!("drive: {}", drive);
@@ -162,7 +183,7 @@ pub unsafe fn initialize() {
 	}
 }
 
-pub unsafe fn list_partitions() -> &'static[Partition] {
+pub unsafe fn list_partitions() -> &'static [Partition] {
 	return PARTITIONS.get_slice();
 }
 
