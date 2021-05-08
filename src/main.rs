@@ -14,6 +14,7 @@
 #![feature(option_result_unwrap_unchecked)]
 #![feature(associated_type_defaults)]
 #![feature(asm)]
+#![feature(const_generics)]
 
 extern crate rlibc;
 
@@ -89,7 +90,7 @@ fn initialize(boot_info: &BootInfo) {
 
 #[panic_handler]
 fn panic_handler(info: &PanicInfo) -> ! {
-    static mut ORIGINAL_MESSAGE: Option<SVec<u8, 256>> = None;
+    static mut ORIGINAL_MESSAGE: Option<SVec<u8, 1024>> = None;
     unsafe {
         if let Some(orig) = ORIGINAL_MESSAGE.take() {
             println!("Panic while trying to pretty_print other panic");
@@ -109,7 +110,7 @@ fn panic_handler(info: &PanicInfo) -> ! {
             loop {}
         }
     }
-    let mut msg = SVec::<u8, 256>::new();
+    let mut msg = SVec::<u8, 1024>::new();
     let loc = info.location().unwrap();
     use core::fmt::Write;
     match info.message() {

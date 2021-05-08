@@ -91,9 +91,10 @@ impl<'a> Window<'a> {
         self.buffer[y * self.buffer_width + x]
     }
 
-    pub fn draw_rect(&mut self, mut rect: Rect, color: Color) {
+    pub fn draw_rect(&mut self, rect: Rect, color: Color) {
+        if rect.is_empty() { return; }
         assert!(rect.x + rect.width <= self.rect.width);
-        assert!(rect.y + rect.height <= self.rect.width);
+        assert!(rect.y + rect.height <= self.rect.height);
         
         for y in rect.y..rect.y + rect.height {
             for x in rect.x..rect.x + rect.width {
@@ -150,6 +151,10 @@ impl Color {
             green,
             blue,
         }
+    }
+
+    pub const fn grayscale(data: u8) -> Self {
+        Self::new(data, data, data)
     }
 
     pub const fn to_bgr(&self) -> u32 {
@@ -373,6 +378,13 @@ pub(super) unsafe fn initialize(framebuffer: FrameBuffer) {
     let ch = framebuffer.info().vertical_resolution / 16;
     DISPLAY.framebuffer = framebuffer;
     DISPLAY.widgets.clear_without_drop();
+}
+
+pub unsafe fn add_uninitialized_widget(widget: &'static mut dyn Widget<InitData=()>) {
+    let info = DISPLAY.framebuffer.info();
+    let res = Point::new(info.horizontal_resolution, info.vertical_resolution);
+    widget.initialize(res, ());
+    DISPLAY.add_widget(widget);
 }
 
 pub unsafe fn add_initialized_widget(widget: &'static mut dyn Widget<InitData=()>) {

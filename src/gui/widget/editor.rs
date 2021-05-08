@@ -2,7 +2,7 @@ use core::fmt::Write;
 
 use crate::{gui::display::{Point, Rect, Window}, svec::SVec};
 
-use super::{Widget, container::Container, initializer::Initializer, super::display::Color};
+use super::{super::display::Color, Widget, container::Container, file_dialog::{Action, FileDialog}, initializer::Initializer};
 use super::Event;
 use super::Response;
 use super::KeyEvent;
@@ -296,6 +296,9 @@ impl Editor {
     }
 }
 
+static mut SAVE_DIALOG: FileDialog<{ Action::Save }> = FileDialog::new_save_uninit(&mut []);
+static mut OPEN_DIALOG: FileDialog<{ Action::Open }> = FileDialog::new_open_uninit(&mut []);
+
 impl Widget for Editor {
     fn initialize(&mut self, size: Point, _: ()) {
         self.width = size.x / 8;
@@ -310,13 +313,14 @@ impl Widget for Editor {
     }
 
     fn draw(&mut self, mut window: Window) {
+        if !self.dirty { return; }
 
         let invalid = self.invalidated;
         let start_x = invalid.x / 8;
         let start_y = invalid.y / 16;
         // end_x and end_y are exclusive; they should not be written to
-        let end_x = (invalid.x + invalid.width + 7) / 8;
-        let end_y = (invalid.y + invalid.height + 15) / 16;
+        let end_x = (invalid.x + invalid.width) / 8;
+        let end_y = (invalid.y + invalid.height) / 16;
         
         // This function walks through the characters on screen,
         // and if they are in the invalidated area, prints it to the screen.
@@ -456,6 +460,24 @@ impl Widget for Editor {
                 },
                 KeyEvent { keycode: KeyCode::P, modifiers: Modifiers::CTRL, .. } => {
                     panic!("Panic initiated by ctrl-P");
+                },
+                KeyEvent { keycode: KeyCode::S, modifiers: Modifiers::CTRL, .. } => {
+                    unsafe {
+                        SAVE_DIALOG = FileDialog::new_save_dialog(None, unsafe {
+                            &mut *(self.char_buffer.get_slice_mut() as *mut [char])
+                        });
+                        super::super::display::add_uninitialized_widget(&mut SAVE_DIALOG);
+                    }
+                    Response::Nothing
+                },
+                KeyEvent { keycode: KeyCode::O, modifiers: Modifiers::CTRL, .. } => {
+                    unsafe {
+                        OPEN_DIALOG = FileDialog::new_open_dialog(None, unsafe {
+                            &mut *(self.char_buffer.get_slice_mut() as *mut [char])
+                        });
+                        super::super::display::add_uninitialized_widget(&mut OPEN_DIALOG);
+                    }
+                    Response::Nothing
                 }
                 _ => Response::Nothing
             }

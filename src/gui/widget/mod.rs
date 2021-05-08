@@ -3,6 +3,7 @@ pub mod editor;
 pub mod container;
 pub mod initializer;
 pub mod message_box;
+pub mod file_dialog;
 
 use core::any::Any;
 

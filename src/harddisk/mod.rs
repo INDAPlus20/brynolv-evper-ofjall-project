@@ -1,5 +1,5 @@
 
 
-mod pata;
-mod partitions;
-mod fat32;
+pub mod pata;
+pub mod partitions;
+pub mod fat32;
