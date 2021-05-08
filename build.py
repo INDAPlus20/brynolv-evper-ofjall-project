@@ -152,7 +152,7 @@ if result.returncode != 0:
 # What these files are used for is described at https://docs.rs/bootloader/0.10.1/bootloader/
 
 if run:
-    run_command = ['qemu-system-x86_64', 'out/boot-bios-brynolv-evper-ofjall-project.img']
+    run_command = ['qemu-system-x86_64', '-bios', 'bios.bin', 'out/boot-uefi-brynolv-evper-ofjall-project.img']
     if gdb:
         run_command += ['-s', '-S']
     subprocess.run(run_command)

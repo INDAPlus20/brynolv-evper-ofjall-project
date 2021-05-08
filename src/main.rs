@@ -13,6 +13,7 @@
 #![feature(const_option)]
 #![feature(option_result_unwrap_unchecked)]
 #![feature(associated_type_defaults)]
+#![feature(asm)]
 
 extern crate rlibc;
 
@@ -25,6 +26,7 @@ mod ps2_keyboard;
 mod gdt;
 mod svec;
 mod gui;
+mod harddisk;
 
 use core::{panic::PanicInfo, sync::atomic::{AtomicBool, Ordering}};
 
