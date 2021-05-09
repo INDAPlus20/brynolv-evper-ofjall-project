@@ -1,4 +1,5 @@
 use core::{
+	fmt::Debug,
 	mem::MaybeUninit,
 	ops::{Index, IndexMut},
 };
@@ -6,6 +7,12 @@ use core::{
 pub struct SVec<T, const N: usize> {
 	inner: [MaybeUninit<T>; N],
 	length: usize,
+}
+
+impl<T: Debug, const N: usize> Debug for SVec<T, N> {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		write!(f, "{:?}", self.get_slice())
+	}
 }
 
 impl<T, const N: usize> SVec<T, N> {

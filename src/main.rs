@@ -8,6 +8,7 @@
 #![feature(maybe_uninit_ref)]
 #![feature(non_ascii_idents)]
 #![feature(asm)]
+#![feature(const_maybe_uninit_assume_init)]
 
 extern crate rlibc;
 
@@ -22,6 +23,7 @@ mod ps2_keyboard;
 mod svec;
 
 use core::{
+	mem::MaybeUninit,
 	panic::PanicInfo,
 	sync::atomic::{AtomicBool, Ordering},
 };
@@ -80,6 +82,8 @@ fn initialize(boot_info: &BootInfo) {
 			x86_64::instructions::interrupts::enable();
 			ps2::initialize();
 			ps2_keyboard::initialize();
+
+			harddisk::initialize();
 		}
 	}
 }
