@@ -39,7 +39,7 @@ const NUM_PARTITIONS: usize = 16;
 static mut PARTITIONS: SVec<Partition, NUM_PARTITIONS> = SVec::new();
 
 pub struct Partition {
-	drive: u8,
+	index: u8,
 	partition_guid: [u8; 16],
 	start_sector: usize,
 	sector_count: usize,
@@ -47,8 +47,8 @@ pub struct Partition {
 }
 
 impl Partition {
-	pub fn drive(&self) -> u8 {
-		self.drive
+	pub fn index(&self) -> u8 {
+		self.index
 	}
 
 	pub fn start_sector(&self) -> usize {
@@ -97,7 +97,7 @@ pub unsafe fn initialize() {
 	// Read partition entries (only the first 16 for now)
 	let num_entries_per_slice = 512 / partition_entry_size;
 	let last_sector = start_sector + (NUM_PARTITIONS / num_entries_per_slice as usize);
-	let mut drive: u8 = 0;
+	let mut partition_index: u8 = 0;
 	for s in start_sector..last_sector {
 		// Read disk sector
 		pata::read_sectors(0, s, &mut buf);
@@ -157,7 +157,7 @@ pub unsafe fn initialize() {
 
 			// Make partition entry
 			let entry = Partition {
-				drive,
+				index: partition_index,
 				partition_guid,
 				start_sector,
 				sector_count: (last_sector - start_sector),
@@ -178,7 +178,7 @@ pub unsafe fn initialize() {
 			PARTITIONS.push(entry);
 
 			// Increase drive index
-			drive += 1;
+			partition_index += 1;
 		}
 	}
 }
@@ -189,23 +189,23 @@ pub unsafe fn list_partitions() -> &'static [Partition] {
 
 /// Reads sectors from specified partition
 /// start_sector starts at 0
-pub unsafe fn read_sectors(drive: u8, start_sector: usize, buffer: &mut [u8]) {
+pub unsafe fn read_sectors(partition: u8, start_sector: usize, buffer: &mut [u8]) {
 	if buffer.len() % 512 != 0 {
 		panic!("Buffer must be a multiple of 512 bytes");
 	}
 
-	let sector_count = PARTITIONS[drive as usize].sector_count;
+	let sector_count = PARTITIONS[partition as usize].sector_count;
 	if start_sector >= sector_count {
 		panic!("sector out of range");
 	}
 
-	let sector = PARTITIONS[drive as usize].start_sector + start_sector;
-	pata::read_sectors(drive, sector, buffer);
+	let sector = PARTITIONS[partition as usize].start_sector + start_sector;
+	pata::read_sectors(partition, sector, buffer);
 }
 
 // Writes sectors to specified partition
 /// start_sector starts at 0
-pub unsafe fn write_sectors(drive: u8, start_sector: usize, buffer: &[u8]) {
+pub unsafe fn write_sectors(partition: u8, start_sector: usize, buffer: &[u8]) {
 	if buffer.len() % 512 != 0 {
 		panic!("Buffer must be a multiple of 512 bytes");
 	}
@@ -214,11 +214,11 @@ pub unsafe fn write_sectors(drive: u8, start_sector: usize, buffer: &[u8]) {
 		panic!("Buffer must be a multiple of 512 bytes");
 	}
 
-	let sector_count = PARTITIONS[drive as usize].sector_count;
+	let sector_count = PARTITIONS[partition as usize].sector_count;
 	if start_sector >= sector_count {
 		panic!("sector out of range");
 	}
 
-	let sector = PARTITIONS[drive as usize].start_sector + start_sector;
-	pata::write_sectors(drive, sector, buffer);
+	let sector = PARTITIONS[partition as usize].start_sector + start_sector;
+	pata::write_sectors(partition, sector, buffer);
 }
