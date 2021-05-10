@@ -43,12 +43,16 @@ pub struct Partition {
 	partition_guid: [u8; 16],
 	start_sector: usize,
 	sector_count: usize,
-	name: SVec<char, { 72 / 2 }>,
+	name: SVec<char, 36>,
 }
 
 impl Partition {
 	pub fn index(&self) -> u8 {
 		self.index
+	}
+
+	pub fn partition_guid(&self) -> &[u8] {
+		&self.partition_guid
 	}
 
 	pub fn start_sector(&self) -> usize {
@@ -57,6 +61,10 @@ impl Partition {
 
 	pub fn sector_count(&self) -> usize {
 		self.sector_count
+	}
+
+	pub fn name(&self) -> &SVec<char, 36> {
+		&self.name
 	}
 }
 
@@ -144,9 +152,12 @@ pub unsafe fn initialize() {
 			]);
 
 			// Read name
-			let mut name: SVec<char, { 72 / 2 }> = SVec::new();
+			let mut name: SVec<char, 36> = SVec::new();
 			offset = base_offset + 0x38;
-			for _n in 0..36 {
+			// EFI spec says 72 bytes (36 characters), however OSDev wiki says never to hardcode this and use {partition_entry_size - offset} instead.
+			// Since we don't support dynamic allocation, use the shortest length.
+			let name_length = core::cmp::min(36, partition_entry_size - 0x38);
+			for _n in 0..name_length {
 				let c = u16::from_le_bytes([buf[offset], buf[offset + 1]]);
 				if c == 0x0000 {
 					break;
