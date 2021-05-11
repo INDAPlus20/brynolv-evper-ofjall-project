@@ -8,7 +8,7 @@ use crate::svec::SVec;
 
 const SEPARATOR_CHAR: u8 = b'>';
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FileInfo {
 	pub name: SVec<u8, 12>,
 	pub size: usize,
@@ -348,7 +348,7 @@ impl Driver {
 		if self.current_loaded_sector == sector {
 			return;
 		}
-
+		self.flush();
 		super::partitions::read_sectors(self.partition as _, sector, &mut self.buffer);
 		self.current_loaded_sector = sector;
 	}
@@ -366,10 +366,8 @@ impl Driver {
 		let mut current_cluster = cluster;
 
 		loop {
-			println!("current cluster: {}", current_cluster);
 			let cluster_sector = (current_cluster as usize - 2) * self.header.sectors_per_cluster + first_data_sector;
 			for sector in cluster_sector .. cluster_sector + self.header.sectors_per_cluster {
-				println!("Starting sector {}", sector);
 				self.load_sector(sector);
 
 				for i in 0..(512 / 32) {
@@ -522,10 +520,8 @@ impl Driver {
 
 		let mut cluster_count = 0;
 		loop {
-			println!("current cluster: {}", current_cluster);
 			let cluster_sector = (current_cluster as usize - 2) * self.header.sectors_per_cluster + first_data_sector;
 			for i in 0..self.header.sectors_per_cluster {
-				println!("Starting sector {}", cluster_sector + i);
 				self.load_sector(cluster_sector + i);
 
 				let offset = (cluster_count * self.header.sectors_per_cluster + i) * 512;
@@ -589,6 +585,121 @@ impl Driver {
 			Err(FatError::IsntDirectory)
 		} else {
 			Ok(entry)
+		}
+	}
+
+	unsafe fn create_empty_file(&mut self, path: Path) -> Result<FileInfo, FatError> {
+		assert!(self.get_entry_info(path).is_err());
+
+		let (mut dir_path, mut file_name) = path.split_last_2(&SEPARATOR_CHAR);
+		if file_name.len() == 0 {
+			core::mem::swap(&mut dir_path, &mut file_name);
+		}
+		
+		let mut name = SVec::<u8, 8>::new();
+		let mut ext = SVec::<u8, 3>::new();
+
+		let (bare_name, extension) = file_name.split_last_2(&b'.');
+		for &b in bare_name {
+			name.push(b);
+		}
+		for _ in name.len()..name.capacity() {
+			name.push(b' ');
+		}
+		for &b in extension {
+			ext.push(b);
+		}
+		for _ in ext.len()..ext.capacity() {
+			ext.push(b' ');
+		}
+
+		
+
+		let dir_info = self.get_directory_info(dir_path)?;
+
+		let root_dir_sectors = (self.header.dir_entries * 32 + 511) / 512;
+		let first_data_sector = self.header.reserved_sectors
+			+ self.header.fat_count * self.header.sectors_per_fat
+			+ root_dir_sectors;
+		let first_root_dir_sector = first_data_sector - root_dir_sectors;
+
+		let mut current_cluster = dir_info.first_cluster;
+
+		let mut new_entry = [0u8; 32];
+
+		new_entry[0..8].copy_from_slice(name.get_slice());
+		new_entry[8..11].copy_from_slice(ext.get_slice());
+
+		loop {
+			println!("current cluster: {}", current_cluster);
+			let cluster_sector = (current_cluster as usize - 2) * self.header.sectors_per_cluster + first_data_sector;
+			for sector in cluster_sector .. cluster_sector + self.header.sectors_per_cluster {
+				println!("Starting sector {}", sector);
+				self.load_sector(sector);
+
+				for i in 0..(512 / 32) {
+					let entry = &self.buffer[i * 32..(i + 1) * 32];
+					let entry: DirectoryEntry = entry.try_into().unwrap();
+
+					match entry {
+						DirectoryEntry::Standard { .. } => continue,
+						DirectoryEntry::LongFileName {} => continue,
+						DirectoryEntry::Unused |
+						DirectoryEntry::Empty => {
+							self.buffer[i * 32..(i + 1) * 32].copy_from_slice(&new_entry);
+
+							return Ok(FileInfo {
+							    name: file_name.try_into().unwrap(),
+							    size: 0,
+							    is_directory: false,
+							    first_cluster: 0,
+							});
+						}
+					}
+				}
+			}
+
+			if let Some(next_cluster) = self.fat.get_next_cluster(current_cluster) {
+				current_cluster = next_cluster;
+				continue;
+			} else {
+				let new_cluster = self.fat.find_empty_cluster(2).unwrap();
+				let cluster_sector = (current_cluster as usize - 2) * self.header.sectors_per_cluster + first_data_sector;
+				
+				
+				for i in 0..self.header.sectors_per_cluster {
+					self.load_sector(cluster_sector + i);
+					self.buffer.copy_from_slice(&[0; 512]);
+				}
+
+				self.load_sector(cluster_sector);
+				self.buffer[0..32].copy_from_slice(&new_entry);
+
+				self.fat.set_next_cluster(current_cluster, Some(new_cluster)).unwrap();
+				self.fat.set_next_cluster(new_cluster, None).unwrap();
+
+				return Ok(FileInfo {
+					name: file_name.try_into().unwrap(),
+					size: 0,
+					is_directory: false,
+					first_cluster: 0,
+				});
+			}
+		}
+	}
+
+	unsafe fn write_file(&mut self, path: Path, data: &[u8]) -> Result<(), FatError> {
+
+		todo!()
+	}
+
+	fn flush(&mut self) {
+		unsafe {
+			super::partitions::write_sectors(
+				0,
+				self.current_loaded_sector,
+				&self.buffer,
+			);
 		}
 	}
 }
@@ -703,4 +814,35 @@ pub unsafe fn get_file_info(path: Path) -> FileInfo {
 
 pub unsafe fn list_entries(directory_path: Path) -> Result<SVec<FileInfo, 32>, FatError> {
 	DRIVER.get_entries(directory_path)
+}
+
+pub unsafe fn create_empty_file(path: Path) -> Result<FileInfo, FatError> {
+	DRIVER.create_empty_file(path)
+}
+
+
+
+
+pub trait SplitLast<T>: Sized {
+	fn split_last_2(self, v: &T) -> (Self, Self);
+}
+
+impl<T: PartialEq> SplitLast<T> for &[T] {
+    fn split_last_2(self, v: &T) -> (Self, Self) {
+		let mut last_separator_index = None;
+		for (i, b) in self.iter().enumerate() {
+			if b == v {
+				last_separator_index = Some(i);
+			}
+		}
+
+		if let Some(index) = last_separator_index {
+			let parts = self.split_at(index);
+			let dir_path = parts.0;
+			let file_name = &parts.1[1..];
+			(dir_path, file_name)
+		} else {
+			(self, &[][..])
+		}
+    }
 }
