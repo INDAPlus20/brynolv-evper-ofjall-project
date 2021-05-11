@@ -1,4 +1,9 @@
-use core::{convert::TryFrom, fmt::{Debug, Display}, mem::MaybeUninit, ops::{Index, IndexMut}};
+use core::{
+	convert::TryFrom,
+	fmt::{Debug, Display},
+	mem::MaybeUninit,
+	ops::{Index, IndexMut},
+};
 
 pub struct SVec<T, const N: usize> {
 	inner: [MaybeUninit<T>; N],
@@ -148,25 +153,25 @@ impl<const N: usize> SVec<char, N> where [(); N * 4]: {
 }
 
 impl<T: Clone, const N: usize> TryFrom<&[T]> for SVec<T, N> {
-    type Error = ();
+	type Error = ();
 
-    fn try_from(value: &[T]) -> Result<Self, Self::Error> {
+	fn try_from(value: &[T]) -> Result<Self, Self::Error> {
 		if value.len() > N {
 			return Err(());
 		}
 
 		let mut svec = SVec::new();
-		
+
 		for val in value {
 			svec.push(val.clone());
 		}
 
 		Ok(svec)
-    }
+	}
 }
 
 impl<const N: usize> Display for SVec<u8, N> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{}", self.to_str())
-    }
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		write!(f, "{}", self.to_str())
+	}
 }

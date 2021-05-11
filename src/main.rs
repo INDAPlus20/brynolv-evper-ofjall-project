@@ -49,30 +49,37 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
 			println!();
 			match path_buffer.get_slice().split_last_2(&b' ') {
 				(b"read", path) => match unsafe { harddisk::fat32::list_entries(path) } {
-					Ok(e) => for e in e.get_slice() {
-						println!(
-							"{:12}  {:3}  {}",
-							e.name.to_str(),
-							if e.is_directory { "DIR" } else { "   " },
-							e.size
-						);
+					Ok(e) => {
+						for e in e.get_slice() {
+							println!(
+								"{:12}  {:3}  {}",
+								e.name.to_str(),
+								if e.is_directory { "DIR" } else { "   " },
+								e.size
+							);
+						}
 					}
 					Err(FatError::IsntDirectory) => {
-						let mut buffer = [0; 1024*2];
+						let mut buffer = [0; 1024 * 2];
 						match unsafe { harddisk::fat32::read_file(path, &mut buffer) } {
 							Ok(v) => {
 								println!("{}", core::str::from_utf8(&buffer[0..v]).unwrap());
 							}
-							Err(e) => println!("Error: {:#?}", e)
+							Err(e) => println!("Error: {:#?}", e),
 						}
 					}
-					Err(e) => {println!("Error: {:#?}", e)}
+					Err(e) => {
+						println!("Error: {:#?}", e)
+					}
 				},
 				(b"create", path) => match unsafe { harddisk::fat32::create_empty_file(path) } {
-				    Ok(info) => println!("{:#?}", info),
-				    Err(e) => println!("Error: {:#?}", e)
+					Ok(info) => println!("{:#?}", info),
+					Err(e) => println!("Error: {:#?}", e),
 				},
-				(other, _) => println!("Unrecognized command '{}'", core::str::from_utf8(other).unwrap())
+				(other, _) => println!(
+					"Unrecognized command '{}'",
+					core::str::from_utf8(other).unwrap()
+				),
 			}
 			while path_buffer.len() > 0 {
 				path_buffer.pop();
