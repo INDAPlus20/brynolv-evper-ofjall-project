@@ -122,3 +122,31 @@ impl<T, const N: usize> Drop for SVec<T, N> {
 		}
 	}
 }
+
+impl<const N: usize> SVec<u8, N> {
+	/// Get the `str` value of this `SVec`, interpretted as UTF-8 meaning compatibility with ASCII.
+	pub fn to_str(&self) -> &str {
+		if self.length == 0 {
+			return "";
+		}
+		core::str::from_utf8(self.get_slice()).unwrap()
+	}
+}
+
+#[rustfmt::skip]
+impl<const N: usize> SVec<char, N> where [(); N * 4]: {
+	/// Converts the `char`s into `u8`s one-by-one.
+	pub fn to_u8(&self) -> SVec<u8, { N * 4 }> {
+		let slice = self.get_slice();
+		let mut ret = SVec::new();
+
+		for c in slice {
+			let mut buf = [0; 4];
+			let s = c.encode_utf8(&mut buf);
+			for b in s.bytes() {
+				ret.push(b);
+			}
+		}
+		ret
+	}
+}

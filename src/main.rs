@@ -6,9 +6,10 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_extra)]
 #![feature(maybe_uninit_ref)]
-#![feature(non_ascii_idents)]
 #![feature(asm)]
 #![feature(const_maybe_uninit_assume_init)]
+#![feature(const_generics)]
+#![feature(const_evaluatable_checked)]
 
 extern crate rlibc;
 
@@ -23,14 +24,13 @@ mod ps2_keyboard;
 mod svec;
 
 use core::{
-	mem::MaybeUninit,
 	panic::PanicInfo,
 	sync::atomic::{AtomicBool, Ordering},
 };
 
 use bootloader::BootInfo;
 
-use crate::ps2_keyboard::KeyCode;
+use crate::{ps2_keyboard::KeyCode, svec::SVec};
 
 #[no_mangle]
 pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
