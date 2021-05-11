@@ -13,7 +13,7 @@
 
 extern crate rlibc;
 
-#[macro_use
+#[macro_use]
 mod printer;
 mod gdt;
 mod harddisk;
@@ -29,6 +29,7 @@ use core::{
 };
 
 use bootloader::BootInfo;
+use harddisk::fat32::FatError;
 
 use crate::{ps2_keyboard::KeyCode, svec::SVec};
 
@@ -39,11 +40,46 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
 
 	println!("Hello, World!");
 
+	let mut path_buffer: SVec<u8, 128> = SVec::new();
+
 	loop {
 		let event = ps2_keyboard::get_key_event();
-		if let Some(char) = event.char {
-			print!("{}", char);
+		if event.keycode == KeyCode::Enter {
+			println!();
+			match unsafe { harddisk::fat32::list_entries(path_buffer.get_slice()) } {
+			    Ok(e) => for e in e.get_slice() {
+					println!(
+						"{:12}  {:3}  {}",
+						e.name.to_str(),
+						if e.is_directory { "DIR" } else { "   " },
+						e.size
+					);
+				}
+				Err(FatError::IsntDirectory) => {
+					let mut buffer = [0; 1024*2];
+					match unsafe { harddisk::fat32::read_file(path_buffer.get_slice(), &mut buffer) } {
+					    Ok(v) => {
+							println!("{}", core::str::from_utf8(&buffer[0..v]).unwrap());
+						}
+					    Err(e) => println!("Error: {:#?}", e)
+					}
+				}
+			    Err(e) => {println!("Error: {:#?}", e)}
+			}
+			while path_buffer.len() > 0 {
+				path_buffer.pop();
+			}
+		} else if let Some(char) = event.char {
+			let mut b = [0; 4];
+			let s = char.encode_utf8(&mut b);
+			for b in s.bytes() {
+				path_buffer.push(b);
+			}
+			print!("{}", s);
 		} else if event.keycode == KeyCode::Backspace {
+			if path_buffer.len() > 0 {
+				path_buffer.pop();
+			}
 			print!("\x08");
 		}
 	}
