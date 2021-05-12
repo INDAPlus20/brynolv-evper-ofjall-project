@@ -333,10 +333,10 @@ unsafe impl GlobalAlloc for MemoryAllocator {
 				MEMORY_MAPPER.unmap(VirtAddr::new(page << 12));
 			}
 
-            block.previous.unwrap().as_mut().next = block.next;
-            if let Some(mut next) = block.next {
-                next.as_mut().previous = block.previous;
-            }
+			block.previous.unwrap().as_mut().next = block.next;
+			if let Some(mut next) = block.next {
+				next.as_mut().previous = block.previous;
+			}
 		})
 	}
 }
@@ -393,15 +393,16 @@ impl MemoryBlock {
 			data: data_addr,
 		});
 		let ptr = NonNull::new_unchecked(block_addr as _);
-        self.next = Some(ptr);
-        if let Some(mut next) = next {
-            next.as_mut().previous = Some(ptr);
-        }
-        ptr
+		self.next = Some(ptr);
+		if let Some(mut next) = next {
+			next.as_mut().previous = Some(ptr);
+		}
+		ptr
 	}
 }
 
-pub unsafe fn initialize(mem: &[MemoryRegion]) {	FRAME_ALLOCATOR.initialize(mem);
+pub unsafe fn initialize(mem: &[MemoryRegion]) {
+	FRAME_ALLOCATOR.initialize(mem);
 	FRAME_ALLOCATOR.set_used(0);
 	MEMORY_MAPPER.initialize();
 	MEMORY_ALLOCATOR.initialize(0xFFFF_F000_0000_0000);
