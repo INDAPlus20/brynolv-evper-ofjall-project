@@ -25,37 +25,42 @@ extern crate rlibc;
 mod printer;
 mod allocator;
 mod gdt;
+mod gui;
 mod harddisk;
 mod idt;
 mod pic;
 mod ps2;
 mod ps2_keyboard;
 mod svec;
-mod gui;
 
+use alloc::{boxed::Box, string::String};
 use core::{
 	panic::PanicInfo,
 	sync::atomic::{AtomicBool, Ordering},
 };
 
 use bootloader::BootInfo;
-use gui::widget::{Event, Widget, message_box::MessageBox};
+use gui::widget::{message_box::MessageBox, Event, Widget};
+use harddisk::fat32::FatError;
 use ps2_keyboard::KeyState;
 
-use crate::{gui::{display::Point, widget::{container::Container, initializer::Initializer}}, ps2_keyboard::{KeyCode, KeyEvent, Modifiers}, svec::SVec};
-use harddisk::fat32::FatError;
+use crate::{
+	gui::{display::Point, widget::container::Container},
+	ps2_keyboard::{KeyCode, KeyEvent, Modifiers},
+	svec::SVec,
+};
 
 #[no_mangle]
 pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
 	// No function call may precede this one, or else undefined behaviour may be invoked.
 	initialize(boot_info);
 
-    loop {
-        let event = ps2_keyboard::get_key_event();
-        unsafe {
-            gui::display::send_event(Event::KeyEvent(event));
-        }
-    }
+	loop {
+		let event = ps2_keyboard::get_key_event();
+		unsafe {
+			gui::display::send_event(Event::KeyEvent(event));
+		}
+	}
 }
 
 /// Initializes all modules.
@@ -88,6 +93,8 @@ fn initialize(boot_info: &BootInfo) {
 
 			allocator::initialize(&*boot_info.memory_regions);
 
+			gui::initialize(core::ptr::read(boot_info.framebuffer.as_ref().unwrap()));
+
 			pic::initialize();
 			// Enabling interrupts must happen AFTER both the GDT and the IDT have been initialized
 			x86_64::instructions::interrupts::enable();
@@ -101,69 +108,64 @@ fn initialize(boot_info: &BootInfo) {
 
 #[panic_handler]
 fn panic_handler(info: &PanicInfo) -> ! {
-    static mut ORIGINAL_MESSAGE: Option<SVec<u8, 1024>> = None;
-    unsafe {
-        if let Some(orig) = ORIGINAL_MESSAGE.take() {
-            println!("Panic while trying to pretty_print other panic");
-            
-            let loc = info.location().unwrap();
-            match info.message() {
-                Some(message) => {
-                    println!("{}: Panic at '{}'", loc, message);
-                }
-                None => {
-                    println!("{}: Panic", loc);
-                }
-            }
-            println!("Original panic:");
-            println!("{}", core::str::from_utf8(orig.get_slice()).unwrap());
+	static mut ORIGINAL_MESSAGE: Option<String> = None;
+	unsafe {
+		if let Some(orig) = ORIGINAL_MESSAGE.take() {
+			println!("Panic while trying to pretty_print other panic");
 
-            loop {}
-        }
-    }
-    let mut msg = SVec::<u8, 1024>::new();
-    let loc = info.location().unwrap();
-    use core::fmt::Write;
-    match info.message() {
-        Some(message) => {
-            write!(msg, "{}: Panic at '{}'", loc, message).unwrap();
-        }
-        None => {
-            write!(msg, "{}: Panic", loc).unwrap();
-        }
-    }
-    unsafe {
-        ORIGINAL_MESSAGE = Some(msg.clone());
-    }
-    
-    let mut widget = MessageBox::uninitialized();
-    widget.title = "Panic!";
-    widget.text = unsafe { &*(core::str::from_utf8(msg.get_slice()).unwrap() as *const str) };
+			let loc = info.location().unwrap();
+			match info.message() {
+				Some(message) => {
+					println!("{}: Panic at '{}'", loc, message);
+				}
+				None => {
+					println!("{}: Panic", loc);
+				}
+			}
+			println!("Original panic:");
+			println!("{}", orig);
 
-    let res = unsafe { gui::display::resolution() };
+			loop {}
+		}
+	}
+	let mut msg = String::new();
+	let loc = info.location().unwrap();
+	use core::fmt::Write;
+	match info.message() {
+		Some(message) => {
+			write!(msg, "{}: Panic at '{}'", loc, message).unwrap();
+		}
+		None => {
+			write!(msg, "{}: Panic", loc).unwrap();
+		}
+	}
+	unsafe {
+		ORIGINAL_MESSAGE = Some(msg.clone());
+	}
 
-    let char_count = core::str::from_utf8(msg.get_slice()).unwrap().chars().count();
-    let max_line_count = (res.x - 32) / 8;
-    let mut rows = 1;
-    while char_count.saturating_sub((rows - 1) * max_line_count) > max_line_count {
-        rows += 1;
-    }
+	let char_count = msg.chars().count();
+	let mut widget = MessageBox::new("Panic!".into(), msg);
 
-    let max_line_length = char_count.min(max_line_count);
+	let res = unsafe { gui::display::resolution() };
 
-    let inner = Point::new(max_line_length * 8 + 16, rows * 16 + 16 + 32);
-    let mut container = Container::uninitialized(widget);
-    let mut initializer = Initializer::uninitialized(container, (inner, ()));
-    initializer.initialize(res, ());
+	let max_line_count = (res.x - 32) / 8;
+	let mut rows = 1;
+	while char_count.saturating_sub((rows - 1) * max_line_count) > max_line_count {
+		rows += 1;
+	}
 
-    unsafe {
-        let ptr = &mut initializer as *mut Initializer<_>;
-        gui::display::add_initialized_widget(ptr.as_mut().unwrap());
-    }
+	let max_line_length = char_count.min(max_line_count);
 
-    unsafe {
-        gui::display::check_redraw();
-    }
+	let inner = Point::new(max_line_length * 8 + 16, rows * 16 + 16 + 32);
+	let mut container = Container::new(widget, inner);
 
-    loop {}
+	unsafe {
+		gui::display::add_widget(Box::new(container));
+	}
+
+	unsafe {
+		gui::display::check_redraw();
+	}
+
+	loop {}
 }
