@@ -8,6 +8,7 @@
 #![feature(maybe_uninit_ref)]
 #![feature(non_ascii_idents)]
 
+extern crate alloc;
 extern crate rlibc;
 
 #[macro_use]
