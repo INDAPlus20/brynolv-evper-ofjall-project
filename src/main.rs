@@ -10,11 +10,14 @@
 #![feature(const_maybe_uninit_assume_init)]
 #![feature(const_generics)]
 #![feature(const_evaluatable_checked)]
+#![feature(default_alloc_error_handler)]
 
+extern crate alloc;
 extern crate rlibc;
 
 #[macro_use]
 mod printer;
+mod allocator;
 mod gdt;
 mod harddisk;
 mod idt;
@@ -127,6 +130,8 @@ fn initialize(boot_info: &BootInfo) {
 			// integers and structs of integers. (and an enum with #[repr(C)])
 			printer::initialize(core::ptr::read(boot_info.framebuffer.as_ref().unwrap()));
 			printer::clear();
+
+			allocator::initialize(&*boot_info.memory_regions);
 
 			pic::initialize();
 			// Enabling interrupts must happen AFTER both the GDT and the IDT have been initialized
