@@ -293,7 +293,7 @@ unsafe impl GlobalAlloc for MemoryAllocator {
 					block_between_addr + core::mem::size_of::<MemoryBlock>() as u64,
 					layout.align() as _,
 				);
-				if next.as_ptr() as u64 - data_after_block_addr > layout.size() as u64 {
+				if next.as_ptr() as u64 > data_after_block_addr + layout.size() as u64 {
 					let new_block = (*current_block).spawn_block(layout, Some(next));
 					let addr = new_block.as_ref().data as _;
 					return addr;
@@ -332,6 +332,11 @@ unsafe impl GlobalAlloc for MemoryAllocator {
 			for page in min_page_to_unmap..=max_page_to_unwrap {
 				MEMORY_MAPPER.unmap(VirtAddr::new(page << 12));
 			}
+
+            block.previous.unwrap().as_mut().next = block.next;
+            if let Some(mut next) = block.next {
+                next.as_mut().previous = block.previous;
+            }
 		})
 	}
 }
@@ -387,12 +392,16 @@ impl MemoryBlock {
 			layout,
 			data: data_addr,
 		});
-		NonNull::new_unchecked(block_addr as _)
+		let ptr = NonNull::new_unchecked(block_addr as _);
+        self.next = Some(ptr);
+        if let Some(mut next) = next {
+            next.as_mut().previous = Some(ptr);
+        }
+        ptr
 	}
 }
 
-pub unsafe fn initialize(mem: &[MemoryRegion]) {
-	FRAME_ALLOCATOR.initialize(mem);
+pub unsafe fn initialize(mem: &[MemoryRegion]) {	FRAME_ALLOCATOR.initialize(mem);
 	FRAME_ALLOCATOR.set_used(0);
 	MEMORY_MAPPER.initialize();
 	MEMORY_ALLOCATOR.initialize(0xFFFF_F000_0000_0000);
