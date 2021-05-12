@@ -12,13 +12,13 @@ extern crate rlibc;
 
 #[macro_use]
 mod printer;
+mod allocator;
 mod gdt;
 mod idt;
 mod pic;
 mod ps2;
 mod ps2_keyboard;
 mod svec;
-mod allocator;
 
 use core::{
 	panic::PanicInfo,
