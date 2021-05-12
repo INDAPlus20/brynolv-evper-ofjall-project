@@ -387,16 +387,16 @@ impl MemoryMapper {
 
 /// Transforms a virtual table into page table indices.
 fn get_page_table_indices(virt: VirtAddr) -> (usize, usize, usize, usize) {
-    let addr = virt.as_u64();
+	let addr = virt.as_u64();
 	// Each index is 9 bits wide, and bits 0..=11 are
 	// the offset into the page.
 	// As such, `idx1` starts at bit 12, and
 	// the others follow at 9-bit offsets.
-    let idx4 = addr as usize >> 39 & 0x1FF;
-    let idx3 = addr as usize >> 30 & 0x1FF;
-    let idx2 = addr as usize >> 21 & 0x1FF;
-    let idx1 = addr as usize >> 12 & 0x1FF;
-    (idx4, idx3, idx2, idx1)
+	let idx4 = addr as usize >> 39 & 0x1FF;
+	let idx3 = addr as usize >> 30 & 0x1FF;
+	let idx2 = addr as usize >> 21 & 0x1FF;
+	let idx1 = addr as usize >> 12 & 0x1FF;
+	(idx4, idx3, idx2, idx1)
 }
 
 /// A virtual memory allocator.
@@ -425,7 +425,6 @@ impl MemoryAllocator {
 	/// - `MEMORY_MAPPER.initialize(..)` must have been called
 	/// - `start_addr` must not point to used memory
 	unsafe fn initialize(&mut self, start_addr: u64) {
-
 		// Make sure the page at start_addr is mapped.
 		if !MEMORY_MAPPER.is_mapped(VirtAddr::new(start_addr)) {
 			let frame = FRAME_ALLOCATOR.allocate_frame();
@@ -511,7 +510,7 @@ unsafe impl GlobalAlloc for MemoryAllocator {
 				core::mem::align_of::<MemoryBlock>() as _,
 			);
 			let block = (block_addr as *mut MemoryBlock).as_mut().unwrap();
-			
+
 			// There might be pages that are now not used
 			// and may be unmapped. However, we must take caution
 			// to not unmap any pages which are part of another allocation.
