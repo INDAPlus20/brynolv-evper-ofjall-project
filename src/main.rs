@@ -18,6 +18,7 @@ mod pic;
 mod ps2;
 mod ps2_keyboard;
 mod svec;
+mod allocator;
 
 use core::{
 	panic::PanicInfo,
@@ -72,6 +73,8 @@ fn initialize(boot_info: &BootInfo) {
 			// integers and structs of integers. (and an enum with #[repr(C)])
 			printer::initialize(core::ptr::read(boot_info.framebuffer.as_ref().unwrap()));
 			printer::clear();
+
+			allocator::initialize(&*boot_info.memory_regions);
 
 			pic::initialize();
 			// Enabling interrupts must happen AFTER both the GDT and the IDT have been initialized
