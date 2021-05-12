@@ -42,8 +42,6 @@ use ps2_keyboard::KeyState;
 use crate::{gui::{display::Point, widget::{container::Container, initializer::Initializer}}, ps2_keyboard::{KeyCode, KeyEvent, Modifiers}, svec::SVec};
 use harddisk::fat32::FatError;
 
-use crate::{ps2_keyboard::KeyCode, svec::SVec};
-
 #[no_mangle]
 pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
 	// No function call may precede this one, or else undefined behaviour may be invoked.
