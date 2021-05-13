@@ -1,4 +1,4 @@
-use alloc::{rc::Rc, string::String, vec::Vec};
+use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
 use core::{cell::RefCell, fmt::Write};
 
 use super::{
@@ -6,7 +6,8 @@ use super::{
 	Widget,
 };
 use crate::{
-	gui::display::{Point, Rect, Window},
+	gui::display::{self, Point, Rect, Window},
+	harddisk,
 	ps2_keyboard::{KeyCode, Modifiers},
 };
 
@@ -620,10 +621,42 @@ impl Widget for Editor {
 					modifiers: Modifiers::CTRL,
 					..
 				} => {
-					unsafe {}
+					let open_file = OpenDialog::new(Vec::new(), "editor:open_file".into());
+					unsafe {
+						display::add_widget(Box::new(open_file));
+					}
 					Response::Nothing
 				}
 				_ => Response::Nothing,
+			},
+			Event::Custom("editor:open_file", path) => match path.downcast_ref::<Vec<u8>>() {
+				Some(path) => {
+					let info = unsafe { harddisk::fat32::get_file_info(path) };
+					let size = info.size;
+					// TODO: check if current buffer has been saved, else, prompt
+
+					let mut byte_buffer = Vec::with_capacity(size);
+					byte_buffer.resize(size, 0);
+					unsafe {
+						harddisk::fat32::read_file(path, &mut byte_buffer).unwrap();
+					}
+					let str = core::str::from_utf8(&byte_buffer).unwrap();
+					self.char_buffer.clear();
+					for c in str.chars() {
+						self.char_buffer.push(c);
+					}
+
+					self.logical_cursor = 0;
+					self.graphical_cursor.x = 0;
+					self.graphical_cursor.y = 0;
+					self.scroll = 0;
+					self.top_row_char_index = 0;
+
+					self.invalidate(self.used_area());
+
+					Response::Nothing
+				}
+				None => panic!("Wrong type for event 'editor:open_file'"),
 			},
 			_ => Response::NotHandled,
 		}

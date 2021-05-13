@@ -183,7 +183,7 @@ impl<T, const N: usize> From<SVec<T, N>> for Vec<T> {
 		for i in 0..svec.length {
 			ret.push(unsafe { svec.inner[i].assume_init_read() });
 		}
-		svec.length = 0;
+		core::mem::forget(svec);
 		ret
 	}
 }
