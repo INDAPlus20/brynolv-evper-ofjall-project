@@ -504,7 +504,7 @@ impl Driver {
 	unsafe fn read_file(&mut self, path: Path, buffer: &mut [u8]) -> Result<usize, FatError> {
 		let file_info = self.get_file_info(path)?;
 
-		if file_info.size >= buffer.len() {
+		if file_info.size > buffer.len() {
 			return Err(FatError::BufferTooSmall(file_info.size));
 		}
 
@@ -527,9 +527,11 @@ impl Driver {
 				self.load_sector(cluster_sector + i);
 
 				let offset = (cluster_count * self.header.sectors_per_cluster + i) * 512;
-				let rest_size = file_info.size - offset;
-				buffer[offset..offset + 512.min(rest_size)]
-					.copy_from_slice(&self.buffer[0..rest_size.min(512)]);
+				let rest_size = file_info.size.saturating_sub(offset);
+				if rest_size > 0 {
+					buffer[offset..offset + 512.min(rest_size)]
+						.copy_from_slice(&self.buffer[0..rest_size.min(512)]);
+				}
 			}
 
 			if let Some(next_cluster) = self.fat.get_next_cluster(current_cluster) {
@@ -808,7 +810,7 @@ pub unsafe fn read_file(path: Path, buffer: &mut [u8]) -> Result<usize, FatError
 }
 
 pub unsafe fn get_file_info(path: Path) -> FileInfo {
-	todo!()
+	DRIVER.get_entry_info(path).unwrap()
 }
 
 pub unsafe fn list_entries(directory_path: Path) -> Result<SVec<FileInfo, 32>, FatError> {
