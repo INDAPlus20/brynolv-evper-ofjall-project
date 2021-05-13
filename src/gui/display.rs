@@ -150,68 +150,92 @@ impl<'a> Window<'a> {
 		}
 	}
 
-    pub fn draw_string(&mut self, rect: Rect, scale: usize, wrap: bool, align: Align, string: &str, foreground: Color, background: Color, font: Option<&Font>) {
-        assert!(rect.x + rect.width <= self.rect.width);
-        assert!(rect.y + rect.height <= self.rect.height);
+	pub fn draw_string(
+		&mut self,
+		rect: Rect,
+		scale: usize,
+		wrap: bool,
+		align: Align,
+		string: &str,
+		foreground: Color,
+		background: Color,
+		font: Option<&Font>,
+	) {
+		assert!(rect.x + rect.width <= self.rect.width);
+		assert!(rect.y + rect.height <= self.rect.height);
 
-        match (align, wrap) {
-            (Align::Left, true) => {
-                let mut y = rect.y;
-                let mut chars = string.chars().peekable();
-                while chars.peek().is_some() {
-                    if y + 16 * scale > rect.y + rect.height {
-                        break;
-                    }
-                    let mut x = rect.x;
-                    while let Some(c) = chars.next() {
-                        if x + 8 * scale > rect.x + rect.width {
-                            break;
-                        }
-                        self.draw_char(Point::new(x, y), scale, c, foreground, background, font);
-                        x += 8 * scale;
-                    }
-                    y += 16 * scale;
-                }
-            }
-            (Align::Left, false) => {
-                let mut x = rect.x;
-                for c in string.chars() {
-                    if x + 8 * scale > rect.x + rect.width {
-                        break;
-                    }
-                    self.draw_char(Point::new(x, rect.y), scale, c, foreground, background, font);
-                    x += 8 * scale;
-                }
-            }
-            (Align::Center, true) => todo!(),
-            (Align::Center, false) => {
-                let char_count = string.chars().count();
-                let mut x = rect.x + rect.width / 2;
-                let mut skip = 0;
-                while x < rect.x {
-                    x += 8;
-                    skip += 1;
-                }
+		match (align, wrap) {
+			(Align::Left, true) => {
+				let mut y = rect.y;
+				let mut chars = string.chars().peekable();
+				while chars.peek().is_some() {
+					if y + 16 * scale > rect.y + rect.height {
+						break;
+					}
+					let mut x = rect.x;
+					while let Some(c) = chars.next() {
+						if x + 8 * scale > rect.x + rect.width {
+							break;
+						}
+						self.draw_char(Point::new(x, y), scale, c, foreground, background, font);
+						x += 8 * scale;
+					}
+					y += 16 * scale;
+				}
+			}
+			(Align::Left, false) => {
+				let mut x = rect.x;
+				for c in string.chars() {
+					if x + 8 * scale > rect.x + rect.width {
+						break;
+					}
+					self.draw_char(
+						Point::new(x, rect.y),
+						scale,
+						c,
+						foreground,
+						background,
+						font,
+					);
+					x += 8 * scale;
+				}
+			}
+			(Align::Center, true) => todo!(),
+			(Align::Center, false) => {
+				let char_count = string.chars().count();
+				let mut x = rect.x + rect.width / 2;
+				let mut skip = 0;
+				while x < rect.x {
+					x += 8;
+					skip += 1;
+				}
 
-                for c in string.chars() {
-                    if x + 8 * scale > rect.x + rect.width {
-                        break;
-                    }
-                    self.draw_char(Point::new(x, rect.y), scale, c, foreground, background, font);
-                    x += 8 * scale;
-                }
-            }
-            (Align::Right, true) => todo!(),
-            (Align::Right, false) => todo!()
-        }
-    }
+				for c in string.chars() {
+					if x + 8 * scale > rect.x + rect.width {
+						break;
+					}
+					self.draw_char(
+						Point::new(x, rect.y),
+						scale,
+						c,
+						foreground,
+						background,
+						font,
+					);
+					x += 8 * scale;
+				}
+			}
+			(Align::Right, true) => todo!(),
+			(Align::Right, false) => todo!(),
+		}
+	}
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Align {
-    Left,
-    Center,
-    Right
+	Left,
+	Center,
+	Right,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
