@@ -16,10 +16,17 @@ macro_rules! zeroed {
 	};
 }
 
+/// The default font used for printing characters.
+///
+/// © Einar Persson, 2021
 const DEFAULT_FONT: Font = Font::from(unsafe {
 	core::mem::transmute::<_, [[[u8; 8]; 16]; 128]>(*include_bytes!("../vgafont.bin"))
 });
 
+/// A font containing ASCII glyphs.
+///
+/// Each [Glyph] is placed at the same index as the ASCII code it represents;
+/// `'A'` which has the ASCII code `65` must be placed at index `65`.
 pub struct Font {
 	glyphs: [Glyph; 128],
 }
@@ -39,10 +46,16 @@ impl const From<[[[u8; 8]; 16]; 128]> for Font {
 	}
 }
 
+/// A 8x16px glyph, representing a character.s
+///
+/// The internal array is stored row-major.s
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Glyph([[u8; 8]; 16]);
 
 impl Glyph {
+	/// The empty glyph.
+	///
+	/// Contains all zeros.
 	const EMPTY: Self = Self([[0; 8]; 16]);
 }
 
@@ -52,6 +65,12 @@ impl const From<[[u8; 8]; 16]> for Glyph {
 	}
 }
 
+/// A "window" into a mutable buffer.
+///
+/// A [Window] exposes a part of the buffer for writing and reading operations.
+/// It stores a [Rect] which represents which area of the buffer operations
+/// should operate on. This allows operations to ignore the specifics of where
+/// to the screen to draw on.s
 pub struct Window<'a> {
 	buffer: &'a mut [u32],
 	buffer_width: usize,
@@ -60,6 +79,20 @@ pub struct Window<'a> {
 }
 
 impl<'a> Window<'a> {
+	/// Creates a subwindow, which allows operations only inside the given [Rect].
+	///
+	/// # Panics
+	///
+	/// Panics if `rect` is not entirely contained inside [`Self::rect`].
+	///
+	/// # Example
+	///
+	/// ```
+	/// // Creates a 16x16 subwindow in the upper left corner.
+	/// let mut window = ...;
+	/// let sub_area = Rect::new(0, 0, 16, 16);
+	/// let subwindow = window.subwindow(sub_area);
+	/// ```
 	pub fn subwindow<'b, 'c>(&'c mut self, rect: Rect) -> Window<'b>
 	where
 		'a: 'b,
@@ -82,6 +115,19 @@ impl<'a> Window<'a> {
 		}
 	}
 
+	/// Set a specific pixel to a specific color.
+	///
+	/// # Panics
+	///
+	/// Panics if `x` and `y` are not inside [`Self::rect`].
+	///
+	/// # Example
+	///
+	/// ```
+	/// // Sets the pixel at (1, 2) to white.
+	/// let mut window = ...;
+	/// window.set_pixel(1, 2, Color::WHITE);
+	/// ```
 	pub fn set_pixel(&mut self, x: usize, y: usize, color: Color) {
 		assert!(x < self.rect.width);
 		assert!(y < self.rect.height);
@@ -90,6 +136,11 @@ impl<'a> Window<'a> {
 		self.buffer[y * self.buffer_width + x] = color.to_bgr();
 	}
 
+	/// Gets the color of a specific pixel.
+	///
+	/// # Panics
+	///
+	/// Panics if `x` and `y` are not inside [`Self::rect`].
 	pub fn get_pixel(&mut self, x: usize, y: usize) -> u32 {
 		assert!(x < self.rect.width);
 		assert!(y < self.rect.height);
@@ -98,6 +149,20 @@ impl<'a> Window<'a> {
 		self.buffer[y * self.buffer_width + x]
 	}
 
+	/// Draws a rectangle with a specific color.
+	///
+	/// # Panics
+	///
+	/// Panics if `rect` is not fully contained inside [`Self::rect`].
+	///
+	/// # Example
+	///
+	/// ```
+	/// // Draws a white rectangle with size (100, 50) at position (0, 50)
+	/// let mut window = ...;
+	/// let rect = Rect::new(0, 50, 100, 50);
+	/// window.draw_rect(rect, Color::WHITE);
+	/// ```
 	pub fn draw_rect(&mut self, rect: Rect, color: Color) {
 		if rect.is_empty() {
 			return;
@@ -112,6 +177,33 @@ impl<'a> Window<'a> {
 		}
 	}
 
+	/// Draws a character.
+	///
+	/// The upper left corner of the character is specified with `pos`.
+	/// The character is 8x16 pixels large at `scale` 1, and the sides increase
+	/// linearly as `scale` increases. At `scale` 10, the character will be 80x160 pixels.
+	///
+	/// `font` specifies which [Font] the character will be drawn with. `None` specifies that
+	/// [`DEFAULT_FONT`] should be used.
+	///
+	/// Where the `char`'s [Glyph]'s value is 128 or larger, `foreground` will be used as the color
+	/// for that pixel. Else, `background` will be used.
+	///
+	/// # Panics
+	///
+	/// Panics if the scaled [Glyph] doesn't fit inside [`Self::rect`].
+	///
+	/// # Example
+	///
+	/// ```
+	/// // Draw the character 'g' at (10, 20) with scale 1, foreground white,
+	/// // background black and using the default font.
+	/// 	let mut window = ...;
+	/// let pos = Point::new(10, 20);
+	/// let foreground = Color::WHITE;
+	/// let background = Color::BLACK;
+	/// window.draw_char(pos, 1, 'g', foreground, background, None);
+	/// ```
 	pub fn draw_char(
 		&mut self,
 		pos: Point,
@@ -150,6 +242,36 @@ impl<'a> Window<'a> {
 		}
 	}
 
+	/// Draws a string of characters.
+	///
+	/// `scale`, `foreground`, `background` and `font` are the same as in [`Self::draw_char()`].
+	///
+	/// `rect` is where the string will be printed; any [Glyph]s that would be outside this [Rect]
+	/// won't be drawn. [Glyph]s partially outside count as "outside" for the purposes of this function.
+	///
+	/// `align` specify the [Align]ment of the text, and `wrap` says wether the text will wrap or get clipped.
+	/// Only some `align` and `wrap` combinations are currently supported.
+	///
+	/// # Panics
+	///
+	/// Panics if `rect` is not entirely contained inside [`Self::rect`], or if a currently unsupported combination
+	/// of `align` and `wrap` is used.
+	///
+	/// # Example
+	///
+	/// ```
+	/// // We want to write the string "Hello, World!", starting at position (100, 50)
+	/// // and wrapping at 50 pixels.
+	/// let mut window = ...;
+	/// // We set the height to 50, which should be enough for our string.
+	/// let rect = Rect::new(100, 50, 50, 50);
+	/// let foreground = Color::WHITE;
+	/// let background = Color::BLACK;
+	/// let scale = 1;
+	/// let wrap = true;
+	/// let align = Align::Left;
+	/// window.draw_string(rect, scale, wrap, align, "Hello, World!", foreground, background, None);
+	/// ```
 	pub fn draw_string(
 		&mut self,
 		rect: Rect,
