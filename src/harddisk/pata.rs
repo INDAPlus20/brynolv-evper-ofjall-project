@@ -40,7 +40,7 @@ static mut DRIVE_ADRESS_REG: PortReadOnly<u8> = PortReadOnly::new(CONTROL_BASE_P
 static BUSY: AtomicBool = AtomicBool::new(false);
 /// What is the maximum `iter` acheived during `poll()`?
 /// Used to compensate for fast/slow CPUs
-static mut MAX_ITER: usize = 1000;
+static mut MAX_ITER: usize = 2000;
 
 /// Contains the information on the drives/disks
 static mut DRIVES: SVec<DriveInfo, 2> = SVec::new();
@@ -225,7 +225,8 @@ pub unsafe fn read_sectors(drive: u8, start_sector: usize, buffer: &mut [u8]) {
 			buffer[i * 512 + j * 2] = val[0];
 			buffer[i * 512 + j * 2 + 1] = val[1];
 		}
-		for _ in 0..MAX_ITER / 100 {
+		for _ in 0..MAX_ITER / 400 {
+			// 5 times minimum
 			STATUS_REG.read();
 		}
 	}
@@ -233,6 +234,10 @@ pub unsafe fn read_sectors(drive: u8, start_sector: usize, buffer: &mut [u8]) {
 	BUSY.store(false, core::sync::atomic::Ordering::Release);
 }
 
+/// Writes the provided slice to the disk, starting at `start_sector`
+/// Means slice has to be a multiple of 512 bytes.
+/// # Safety:
+/// This driver has no idea what is stored where, padding with 0 might for instance overwrite the filesystem.
 pub unsafe fn write_sectors(drive: u8, start_sector: usize, buffer: &[u8]) {
 	if buffer.len() % 512 != 0 {
 		panic!("Buffer must be a multiple of 512 bytes");
@@ -262,11 +267,13 @@ pub unsafe fn write_sectors(drive: u8, start_sector: usize, buffer: &[u8]) {
 		for j in 0..256 {
 			let val = u16::from_le_bytes([buffer[i * 512 + j * 2], buffer[i * 512 + j * 2 + 1]]);
 			DATA_REG.write(val);
-			for _ in 0..MAX_ITER / 100 {
+			for _ in 0..MAX_ITER / 200 {
+				// 10 times minimum
 				asm!("jmp no_op", "no_op:", options(nostack, nomem));
 			}
 		}
-		for _ in 0..MAX_ITER / 100 {
+		for _ in 0..MAX_ITER / 400 {
+			// 5 times minimum
 			STATUS_REG.read();
 		}
 	}

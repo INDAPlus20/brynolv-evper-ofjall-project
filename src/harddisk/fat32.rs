@@ -6,12 +6,16 @@ use core::{
 use super::partitions::Partition;
 use crate::svec::SVec;
 
+/// The char used for directory seperation (standard is '/', but we are having fun here)
 const SEPARATOR_CHAR: u8 = b'>';
 
 #[derive(Clone, Debug)]
 pub struct FileInfo {
+	/// The name of the file (we mostly assume 8.3)
 	pub name: SVec<u8, 12>,
+	/// Size, in bytes
 	pub size: usize,
+	/// If the file is, in fact, a directory
 	pub is_directory: bool,
 	first_cluster: u32,
 }
@@ -20,10 +24,15 @@ type Path<'a> = &'a [u8];
 
 struct FileAllocationTable {
 	version: FatVersion,
+	/// The number of FAT sectors
 	sector_count: usize,
+	/// The offset of were the FAT partion begins on the harddisk
 	fat_offset: usize,
-	/// Relative to `fat_offset`
+	/// Relative to `fat_offset` (harddisk sector)
 	currently_loaded_sector: usize,
+	/// Buffer two sectors from the harddisk.
+	///
+	/// We only ever assume one is loaded, but since a cluster could be on a sector boundry, this is to make sure that circumsatance doesn't cause complications.
 	buffer: [u8; 1024],
 }
 
@@ -44,6 +53,9 @@ impl FileAllocationTable {
 		}
 	}
 
+	/// Write the buffer to the disk
+	/// Allways run this when changing sectors
+	/// (Or use `load_sector_containing`)
 	fn flush(&mut self) {
 		unsafe {
 			super::partitions::write_sectors(
@@ -54,6 +66,7 @@ impl FileAllocationTable {
 		}
 	}
 
+	/// Loads the sector containing `cluster`, if there is one.
 	fn load_sector_containing(&mut self, cluster: u32) -> Option<()> {
 		let bit_offset = cluster as usize * self.version.get_cluster_bit_size();
 		let sector_containing_cluster = bit_offset / (512 * 8);
@@ -75,6 +88,7 @@ impl FileAllocationTable {
 		Some(())
 	}
 
+	/// Load the next cluster in the chain, changing sectors as required.
 	fn get_next_cluster(&mut self, cluster: u32) -> Option<u32> {
 		self.load_sector_containing(cluster)?;
 
@@ -84,6 +98,7 @@ impl FileAllocationTable {
 
 		let (next_cluster, invalid_cluster_value) = match self.version {
 			FatVersion::Fat12 => {
+				// FAT12 stores three nibbles
 				let bit_offset_in_byte = relative_bit_offset % 8;
 				let num = u16::from_le_bytes([
 					self.buffer[relative_byte_offset],
@@ -117,6 +132,7 @@ impl FileAllocationTable {
 		}
 	}
 
+	/// Linear search for the next empty cluster.
 	fn find_empty_cluster(&mut self, start_cluster: u32) -> Option<u32> {
 		for cluster in start_cluster..self.sector_count as u32 * self.clusters_per_sector() as u32 {
 			self.load_sector_containing(cluster)?;
@@ -127,6 +143,7 @@ impl FileAllocationTable {
 		None
 	}
 
+	/// Set the `next_cluster` as being after `cluster` in the chain.
 	fn set_next_cluster(&mut self, cluster: u32, next_cluster: Option<u32>) -> Result<(), ()> {
 		self.load_sector_containing(cluster).ok_or(())?;
 
@@ -135,6 +152,7 @@ impl FileAllocationTable {
 
 		match self.version {
 			FatVersion::Fat12 => {
+				// FAT12 stores nibbles
 				let base = (relative_cluster / 2) * 3;
 				let mut num = u32::from_le_bytes([
 					self.buffer[base],
@@ -164,10 +182,13 @@ impl FileAllocationTable {
 		Ok(())
 	}
 
+	/// Set `cluster` as being empty
+	// Is it though?
 	fn set_cluster_empty(&mut self, cluster: u32) -> Result<(), ()> {
 		self.set_next_cluster(cluster, Some(0))
 	}
 
+	/// The number of clusters per (FAT) sector
 	fn clusters_per_sector(&self) -> usize {
 		let bits_per_sector = 512 * 8;
 		let clusters_per_sector = bits_per_sector / self.version.get_cluster_bit_size();
@@ -175,6 +196,7 @@ impl FileAllocationTable {
 	}
 }
 
+/// The FAT header
 #[derive(Debug)]
 struct Header {
 	oem_ident: SVec<u8, 8>,
@@ -189,6 +211,7 @@ struct Header {
 	fat_version: FatVersion,
 }
 
+/// The FAT version, also stores the FAT32 unique values
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 enum FatVersion {
 	Fat12,
@@ -200,6 +223,8 @@ enum FatVersion {
 }
 
 impl FatVersion {
+	/// Returns the number of bits in a cluster for the FAT version.
+	// Could this be static/constant? Does it matter?
 	fn get_cluster_bit_size(&self) -> usize {
 		match self {
 			FatVersion::Fat12 => 12,
@@ -210,6 +235,7 @@ impl FatVersion {
 }
 
 impl Header {
+	/// Tries to read a a header from the harddisk
 	fn try_new(sector: &[u8]) -> Result<Self, ()> {
 		let version = if sector[0x16] == 0 {
 			let root_dir_cluster =
@@ -234,7 +260,7 @@ impl Header {
 		};
 
 		if &sector[0x0B..0x0D] != &512u16.to_le_bytes() {
-			panic!("Sector size is not 512");
+			panic!("Sector size is not 512"); // Shouldn't this be an Error?
 		}
 
 		let sectors_per_cluster = sector[0x0D] as _;
@@ -294,7 +320,9 @@ struct Driver {
 	partition: usize,
 	header: Header,
 	fat: FileAllocationTable,
+	/// FAT sector
 	current_loaded_sector: usize,
+	/// Unlike the `fat`, there is no worry of breaching sector boundries here
 	buffer: [u8; 512],
 }
 
@@ -327,6 +355,13 @@ impl Driver {
 		}
 	}
 
+	/// Initilize the driver
+	///
+	/// # Safety
+	///
+	/// There is no check if the driver has already been initialized
+	///
+	/// Requires partitions to already be initialized.
 	unsafe fn initialize(&mut self) {
 		for part in super::partitions::list_partitions() {
 			let start = part.start_sector();
@@ -347,6 +382,7 @@ impl Driver {
 		}
 	}
 
+	/// Load a particular (FAT) sector
 	unsafe fn load_sector(&mut self, sector: usize) {
 		if self.current_loaded_sector == sector {
 			return;
@@ -356,6 +392,7 @@ impl Driver {
 		self.current_loaded_sector = sector;
 	}
 
+	/// Returns the files/directories inside a cluster
 	unsafe fn get_entries_from_cluster(&mut self, cluster: u32) -> SVec<FileInfo, 32> {
 		let root_dir_sectors = (self.header.dir_entries * 32 + 511) / 512;
 		let first_data_sector = self.header.reserved_sectors
@@ -409,6 +446,9 @@ impl Driver {
 		file_entries
 	}
 
+	/// Returns the files/directories of specified path
+	///
+	/// Empty path gives root directory
 	unsafe fn get_entries(&mut self, path: &[u8]) -> Result<SVec<FileInfo, 32>, FatError> {
 		unsafe fn get_entries_2(
 			s: &mut Driver,
@@ -450,6 +490,7 @@ impl Driver {
 		}
 	}
 
+	/// FAT12/16 has special root directories, handled here
 	unsafe fn get_root_entries(&mut self) -> SVec<FileInfo, 32> {
 		match self.header.fat_version {
 			FatVersion::Fat32 {
@@ -501,10 +542,13 @@ impl Driver {
 		}
 	}
 
+	/// Loads the data from a file at `path` into `buffer`.
+	///
+	/// Returns the size of the file succeed or fail.
 	unsafe fn read_file(&mut self, path: Path, buffer: &mut [u8]) -> Result<usize, FatError> {
 		let file_info = self.get_file_info(path)?;
 
-		if file_info.size >= buffer.len() {
+		if file_info.size > buffer.len() {
 			return Err(FatError::BufferTooSmall(file_info.size));
 		}
 
@@ -527,9 +571,11 @@ impl Driver {
 				self.load_sector(cluster_sector + i);
 
 				let offset = (cluster_count * self.header.sectors_per_cluster + i) * 512;
-				let rest_size = file_info.size - offset;
-				buffer[offset..offset + 512.min(rest_size)]
-					.copy_from_slice(&self.buffer[0..rest_size.min(512)]);
+				let rest_size = file_info.size.saturating_sub(offset);
+				if rest_size > 0 {
+					buffer[offset..offset + 512.min(rest_size)]
+						.copy_from_slice(&self.buffer[0..rest_size.min(512)]);
+				}
 			}
 
 			if let Some(next_cluster) = self.fat.get_next_cluster(current_cluster) {
@@ -544,6 +590,7 @@ impl Driver {
 		Ok(file_info.size)
 	}
 
+	/// Returns information about the file at `path`
 	unsafe fn get_entry_info(&mut self, path: &[u8]) -> Result<FileInfo, FatError> {
 		assert!(path.len() > 0);
 
@@ -573,6 +620,7 @@ impl Driver {
 		Err(FatError::PathNotFound)
 	}
 
+	/// Get information about file at `path`
 	unsafe fn get_file_info(&mut self, path: &[u8]) -> Result<FileInfo, FatError> {
 		let entry = self.get_entry_info(path)?;
 		if entry.is_directory {
@@ -582,6 +630,7 @@ impl Driver {
 		}
 	}
 
+	/// Get information about directory at `path`
 	unsafe fn get_directory_info(&mut self, path: &[u8]) -> Result<FileInfo, FatError> {
 		let entry = self.get_entry_info(path)?;
 		if !entry.is_directory {
@@ -591,6 +640,11 @@ impl Driver {
 		}
 	}
 
+	/// Creates a empty file at `path`
+	///
+	/// Assumes 8.3 filename
+	///
+	/// (aka `touch`)
 	unsafe fn create_empty_file(&mut self, path: Path) -> Result<FileInfo, FatError> {
 		assert!(self.get_entry_info(path).is_err());
 
@@ -692,10 +746,12 @@ impl Driver {
 		}
 	}
 
+	/// Writes a `data` to disk at `path`
 	unsafe fn write_file(&mut self, path: Path, data: &[u8]) -> Result<(), FatError> {
 		todo!()
 	}
 
+	/// Writes the buffer to disk
 	fn flush(&mut self) {
 		unsafe {
 			super::partitions::write_sectors(0, self.current_loaded_sector, &self.buffer);
@@ -708,6 +764,7 @@ pub enum FatError {
 	PathNotFound,
 	IsntDirectory,
 	IsDirectory,
+	/// How big the file is
 	BufferTooSmall(usize),
 }
 
@@ -726,6 +783,7 @@ enum DirectoryEntry {
 impl TryFrom<&[u8]> for DirectoryEntry {
 	type Error = ();
 
+	/// Tries to get information about the directory
 	fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
 		if value.len() != 32 {
 			return Err(());
@@ -787,6 +845,11 @@ impl TryFrom<&[u8]> for DirectoryEntry {
 	}
 }
 
+/// Initializes the FAT32 driver
+///
+/// # Safety
+///
+/// Requires partitions to have been initialized
 pub unsafe fn initialize() {
 	DRIVER.initialize();
 	// for file in driver.get_entries(b"").unwrap().get_slice() {
@@ -799,31 +862,61 @@ pub unsafe fn initialize() {
 	// }
 }
 
+/// Writes `data` to `path`
 pub unsafe fn write_file(path: Path, data: &[u8]) {
 	todo!()
 }
 
+/// Puts the data from `path` in `buffer`
+///
+/// Returns size of file, succeed or fail.
 pub unsafe fn read_file(path: Path, buffer: &mut [u8]) -> Result<usize, FatError> {
 	DRIVER.read_file(path, buffer)
 }
 
+/// Get the `FileInfo` for the file at `path`
 pub unsafe fn get_file_info(path: Path) -> FileInfo {
-	todo!()
+	DRIVER.get_entry_info(path).unwrap()
 }
 
+/// Lists all entries in `directory_path`
 pub unsafe fn list_entries(directory_path: Path) -> Result<SVec<FileInfo, 32>, FatError> {
 	DRIVER.get_entries(directory_path)
 }
 
+/// `touch`
+///
+/// Creates an empty file at `path`
 pub unsafe fn create_empty_file(path: Path) -> Result<FileInfo, FatError> {
 	DRIVER.create_empty_file(path)
 }
 
+/// Used to split directories from each other in paths
 pub trait SplitLast<T>: Sized {
 	fn split_last_2(self, v: &T) -> (Self, Self);
 }
 
 impl<T: PartialEq> SplitLast<T> for &[T] {
+	/// Splits at the last occurence of `v`
+	///
+	/// # Example
+	/// ```
+	/// let s:SVec<char, 6> = SVec::new();
+	/// s.push("r")
+	/// s.push("o")
+	/// s.push("o")
+	/// s.push("t")
+	/// s.push("/")
+	/// s.push("d")
+	/// s.push("i")
+	/// s.push("r")
+	/// s.push("/")
+	/// s.push("f")
+	/// s.push("i")
+	/// s.push("l")
+	/// s.push("e")
+	///
+	/// asserteq!(("root".as_slice(), "dir/file".as_slice()), s.get_slice().split_last_2("/"));
 	fn split_last_2(self, v: &T) -> (Self, Self) {
 		let mut last_separator_index = None;
 		for (i, b) in self.iter().enumerate() {
