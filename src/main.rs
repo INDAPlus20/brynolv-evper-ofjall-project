@@ -79,6 +79,13 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
 					Ok(info) => println!("{:#?}", info),
 					Err(e) => println!("Error: {:#?}", e),
 				},
+				(b"write", path) => {
+					let data_to_write = include_bytes!("../file_to_write.txt");
+					match unsafe { harddisk::fat32::write_file(path, data_to_write) } {
+						Ok(_) => {}
+						Err(e) => println!("Error: {:#?}", e),
+					}
+				}
 				(other, _) => println!(
 					"Unrecognized command '{}'",
 					core::str::from_utf8(other).unwrap()
