@@ -640,6 +640,26 @@ impl Driver {
 		Err(FatError::PathNotFound)
 	}
 
+	unsafe fn is_valid_file_path(&mut self, path: &[u8]) -> Result<(), FatError> {
+		if path.len() == 0 {
+			return Err(FatError::PathNotFound);
+		}
+
+		let (mut dir_path, mut file_name) = path.split_last_2(&SEPARATOR_CHAR);
+		// If user entered a path without separators it will end up in dir_path
+		// Assuming user meant a file in root directory so switch them around
+		if file_name.len() == 0 {
+			core::mem::swap(&mut dir_path, &mut file_name);
+		}
+
+		let dir_result = self.get_directory_info(dir_path);
+		if file_name.len() == 0 || dir_result.is_err() {
+			return Err(FatError::PathNotFound);
+		}
+
+		Ok(())
+	}
+
 	/// Get information about file at `path`
 	unsafe fn get_file_info(&mut self, path: &[u8]) -> Result<FileInfo, FatError> {
 		let entry = self.get_entry_info(path)?;
@@ -1219,8 +1239,13 @@ pub unsafe fn read_file(path: Path, buffer: &mut [u8]) -> Result<usize, FatError
 }
 
 /// Get the `FileInfo` for the file at `path`
-pub unsafe fn get_file_info(path: Path) -> FileInfo {
-	DRIVER.get_entry_info(path).unwrap()
+pub unsafe fn get_file_info(path: Path) -> Result<FileInfo, FatError> {
+	DRIVER.get_entry_info(path)
+}
+
+/// Returns ok if path contains a valid file name and the directory path exists
+pub unsafe fn is_valid_file_path(path: Path) -> Result<(), FatError> {
+	DRIVER.is_valid_file_path(path)
 }
 
 /// Lists all entries in `directory_path`

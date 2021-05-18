@@ -1,9 +1,10 @@
-use alloc::{boxed::Box, rc::Rc, string::String, vec::Vec};
-use core::{cell::RefCell, fmt::Write};
+use alloc::{boxed::Box, string::String, vec::Vec};
+use core::fmt::Write;
 
 use super::{
-	super::display::Color, container::Container, file_dialog::OpenDialog, Event, KeyEvent, Response,
-	Widget,
+	super::display::Color,
+	file_dialog::{OpenDialog, SaveDialog},
+	Event, KeyEvent, Response, Widget,
 };
 use crate::{
 	gui::display::{self, Point, Rect, Window},
@@ -28,6 +29,8 @@ pub struct Editor {
 	top_row_char_index: usize,
 	dirty: bool,
 	invalidated: Rect,
+	// Holds path for current open file
+	current_file_path: Vec<u8>,
 }
 
 impl Editor {
@@ -43,6 +46,7 @@ impl Editor {
 			top_row_char_index: 0,
 			dirty: false,
 			invalidated: Rect::new(0, 0, 0, 0),
+			current_file_path: Vec::new(),
 		}
 	}
 
@@ -613,7 +617,11 @@ impl Widget for Editor {
 					modifiers: Modifiers::CTRL,
 					..
 				} => {
-					unsafe {}
+					let save_file =
+						SaveDialog::new(self.current_file_path.clone(), "editor:save_file".into());
+					unsafe {
+						display::add_widget(Box::new(save_file));
+					}
 					Response::Nothing
 				}
 				KeyEvent {
@@ -631,8 +639,12 @@ impl Widget for Editor {
 			},
 			Event::Custom("editor:open_file", path) => match path.downcast_ref::<Vec<u8>>() {
 				Some(path) => {
-					let info = unsafe { harddisk::fat32::get_file_info(path) };
-					let size = info.size;
+					let file_info = unsafe { harddisk::fat32::get_file_info(path) };
+					if file_info.is_err() {
+						return Response::Nothing;
+					}
+
+					let size = file_info.unwrap().size;
 					// TODO: check if current buffer has been saved, else, prompt
 
 					let mut byte_buffer = Vec::with_capacity(size);
@@ -652,11 +664,39 @@ impl Widget for Editor {
 					self.scroll = 0;
 					self.top_row_char_index = 0;
 
+					self.current_file_path.clone_from(path);
+
 					self.invalidate(self.used_area());
 
 					Response::Nothing
 				}
 				None => panic!("Wrong type for event 'editor:open_file'"),
+			},
+			Event::Custom("editor:save_file", path) => match path.downcast_ref::<Vec<u8>>() {
+				Some(path) => {
+					// Convert char buffer to byte buffer (utf8)
+					let mut byte_buffer = Vec::with_capacity(self.char_buffer.len() * 2);
+					let mut buf = [0; 4];
+					for c in &self.char_buffer {
+						let s = c.encode_utf8(&mut buf);
+						for b in s.bytes() {
+							byte_buffer.push(b);
+						}
+					}
+
+					// Write byte buffer to disk
+					unsafe {
+						harddisk::fat32::write_file(path, &byte_buffer).unwrap();
+					}
+
+					self.current_file_path.clone_from(path);
+
+					// Invalidate used area, to clean up any debug print from writing file to disk
+					self.invalidate(self.used_area());
+
+					Response::Nothing
+				}
+				None => panic!("Wrong type for event 'editor:save_file'"),
 			},
 			_ => Response::NotHandled,
 		}

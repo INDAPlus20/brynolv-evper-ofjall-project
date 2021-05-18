@@ -5,7 +5,6 @@ use crate::{
 	gui::display::{self, Align, Color, Point, Rect, Window},
 	harddisk::{self, fat32::FileInfo},
 	ps2_keyboard::{KeyCode, KeyEvent, Modifiers},
-	svec::SVec,
 };
 
 pub struct OpenDialog {
@@ -154,7 +153,12 @@ impl Widget for OpenDialog {
 					}
 					self.current_path.extend_from_slice(&name);
 
-					if unsafe { harddisk::fat32::get_file_info(&self.current_path).is_directory } {
+					let file_result = unsafe { harddisk::fat32::get_file_info(&self.current_path) };
+					if file_result.is_err() {
+						return Response::Nothing;
+					}
+
+					if file_result.unwrap().is_directory {
 						self.current_entries = unsafe {
 							harddisk::fat32::list_entries(&self.current_path)
 								.unwrap()
@@ -197,6 +201,167 @@ impl Widget for OpenDialog {
 							32,
 						));
 					}
+					Response::Nothing
+				}
+				KeyEvent {
+					keycode: KeyCode::Escape,
+					modifiers: Modifiers::NONE,
+					..
+				} => Response::RemoveMe,
+				_ => Response::Nothing,
+			},
+			Event::Custom(..) => Response::NotHandled,
+		}
+	}
+
+	fn dirty(&self) -> bool {
+		self.dirty
+	}
+}
+
+pub struct SaveDialog {
+	size: Point,
+	dirty: bool,
+	invalidated: Rect,
+	current_path: Vec<u8>,
+	receiver: String,
+}
+
+impl SaveDialog {
+	const MARGIN: usize = 8;
+
+	pub fn new(file_path: Vec<u8>, receiver: String) -> Self {
+		Self {
+			size: Point::new(0, 0),
+			dirty: false,
+			invalidated: Rect::EMPTY,
+			current_path: file_path,
+			receiver,
+		}
+	}
+}
+
+impl Widget for SaveDialog {
+	fn set_size(&mut self, size: Point) {
+		self.size = size;
+	}
+
+	fn draw(&mut self, mut window: Window) {
+		if !self.dirty || self.invalidated.is_empty() {
+			return;
+		}
+
+		let used_area = self.used_area();
+		let title_bar_area = Rect::new(used_area.x, used_area.y, used_area.width, 32);
+		let main_area = Rect::new(
+			used_area.x,
+			used_area.y + title_bar_area.height,
+			used_area.width,
+			32,
+		);
+
+		let title_bar_color = Color::grayscale(0x44);
+		let main_color = Color::grayscale(0x22);
+		let text_color = Color::WHITE;
+
+		window.draw_rect(
+			Rect::intersection(title_bar_area, self.invalidated),
+			title_bar_color,
+		);
+		window.draw_rect(Rect::intersection(main_area, self.invalidated), main_color);
+
+		window.draw_string(
+			Rect::new(
+				title_bar_area.x,
+				title_bar_area.y + 8,
+				title_bar_area.width,
+				16,
+			),
+			1,
+			false,
+			Align::Center,
+			"Save File",
+			text_color,
+			main_color,
+			None,
+		);
+
+		let s = core::str::from_utf8(&self.current_path);
+		if s.is_err() {
+			panic!("Error: invalid uft8 character in current path");
+		}
+
+		window.draw_string(
+			Rect::new(main_area.x, main_area.y + 8, main_area.width, 16),
+			1,
+			false,
+			Align::Center,
+			s.unwrap(),
+			text_color,
+			title_bar_color,
+			None,
+		);
+
+		self.dirty = false;
+		self.invalidated = Rect::EMPTY;
+	}
+
+	fn used_area(&self) -> Rect {
+		Rect::new(
+			Self::MARGIN,
+			Self::MARGIN,
+			self.size.x - Self::MARGIN * 2,
+			self.size.y - Self::MARGIN * 2,
+		)
+	}
+
+	fn invalidate(&mut self, area: Rect) {
+		if self.invalidated.is_empty() {
+			self.invalidated = area;
+		} else {
+			self.invalidated = Rect::smallest_containing(self.invalidated, area);
+		}
+		self.dirty = true;
+	}
+
+	fn on_event(&mut self, event: Event) -> Response {
+		match event {
+			Event::KeyEvent(event) => match event {
+				KeyEvent {
+					keycode: KeyCode::Backspace,
+					modifiers: Modifiers::NONE,
+					..
+				} => {
+					self.current_path.pop();
+					self.invalidate(self.used_area());
+					Response::Nothing
+				}
+				KeyEvent {
+					keycode: KeyCode::Enter,
+					modifiers: Modifiers::NONE,
+					..
+				} => {
+					if self.current_path.len() == 0 {
+						return Response::Nothing;
+					}
+
+					if unsafe { harddisk::fat32::is_valid_file_path(&self.current_path).is_ok() } {
+						// TODO: Prompt if file already exists
+						unsafe { display::send_event(Event::Custom(&self.receiver, &self.current_path)) };
+						return Response::RemoveMe;
+					}
+					Response::Nothing
+				}
+				KeyEvent { char: Some(c), .. } => {
+					let mut buf = [0; 4];
+					let s = c.encode_utf8(&mut buf);
+					if s.len() > 1 {
+						// Ignore chars with a length larger than 1 to make removal simpler
+						return Response::Nothing;
+					}
+
+					self.current_path.push(buf[0]);
+					self.invalidate(self.used_area());
 					Response::Nothing
 				}
 				KeyEvent {
