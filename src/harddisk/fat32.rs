@@ -1,17 +1,23 @@
+use alloc::vec;
 use core::{
 	borrow::BorrowMut,
 	convert::{TryFrom, TryInto},
+	hint::unreachable_unchecked,
 };
 
 use super::partitions::Partition;
 use crate::svec::SVec;
 
+/// The char used for directory seperation (standard is '/', but we are having fun here)
 const SEPARATOR_CHAR: u8 = b'>';
 
 #[derive(Clone, Debug)]
 pub struct FileInfo {
+	/// The name of the file (we mostly assume 8.3)
 	pub name: SVec<u8, 12>,
+	/// Size, in bytes
 	pub size: usize,
+	/// If the file is, in fact, a directory
 	pub is_directory: bool,
 	first_cluster: u32,
 }
@@ -20,10 +26,15 @@ type Path<'a> = &'a [u8];
 
 struct FileAllocationTable {
 	version: FatVersion,
+	/// The number of FAT sectors
 	sector_count: usize,
+	/// The offset of were the FAT partion begins on the harddisk
 	fat_offset: usize,
-	/// Relative to `fat_offset`
+	/// Relative to `fat_offset` (harddisk sector)
 	currently_loaded_sector: usize,
+	/// Buffer two sectors from the harddisk.
+	///
+	/// We only ever assume one is loaded, but since a cluster could be on a sector boundry, this is to make sure that circumsatance doesn't cause complications.
 	buffer: [u8; 1024],
 }
 
@@ -44,6 +55,9 @@ impl FileAllocationTable {
 		}
 	}
 
+	/// Write the buffer to the disk
+	/// Allways run this when changing sectors
+	/// (Or use `load_sector_containing`)
 	fn flush(&mut self) {
 		unsafe {
 			super::partitions::write_sectors(
@@ -54,12 +68,13 @@ impl FileAllocationTable {
 		}
 	}
 
-	fn load_sector_containing(&mut self, cluster: u32) -> Option<()> {
+	/// Loads the sector containing `cluster`, if there is one.
+	fn load_sector_containing(&mut self, cluster: u32) -> Result<(), ()> {
 		let bit_offset = cluster as usize * self.version.get_cluster_bit_size();
 		let sector_containing_cluster = bit_offset / (512 * 8);
 
 		if sector_containing_cluster >= self.sector_count {
-			return None;
+			return Err(());
 		}
 		if sector_containing_cluster != self.currently_loaded_sector {
 			self.flush();
@@ -72,11 +87,12 @@ impl FileAllocationTable {
 			}
 			self.currently_loaded_sector = sector_containing_cluster;
 		}
-		Some(())
+		Ok(())
 	}
 
+	/// Load the next cluster in the chain, changing sectors as required.
 	fn get_next_cluster(&mut self, cluster: u32) -> Option<u32> {
-		self.load_sector_containing(cluster)?;
+		self.load_sector_containing(cluster).ok()?;
 
 		let bit_offset = cluster as usize * self.version.get_cluster_bit_size();
 		let relative_bit_offset = bit_offset - self.currently_loaded_sector * 512 * 8;
@@ -84,6 +100,7 @@ impl FileAllocationTable {
 
 		let (next_cluster, invalid_cluster_value) = match self.version {
 			FatVersion::Fat12 => {
+				// FAT12 stores three nibbles
 				let bit_offset_in_byte = relative_bit_offset % 8;
 				let num = u16::from_le_bytes([
 					self.buffer[relative_byte_offset],
@@ -117,9 +134,10 @@ impl FileAllocationTable {
 		}
 	}
 
+	/// Linear search for the next empty cluster.
 	fn find_empty_cluster(&mut self, start_cluster: u32) -> Option<u32> {
 		for cluster in start_cluster..self.sector_count as u32 * self.clusters_per_sector() as u32 {
-			self.load_sector_containing(cluster)?;
+			self.load_sector_containing(cluster).ok()?;
 			if self.get_next_cluster(cluster) == Some(0) {
 				return Some(cluster);
 			}
@@ -127,36 +145,41 @@ impl FileAllocationTable {
 		None
 	}
 
+	/// Set the `next_cluster` as being after `cluster` in the chain.
 	fn set_next_cluster(&mut self, cluster: u32, next_cluster: Option<u32>) -> Result<(), ()> {
-		self.load_sector_containing(cluster).ok_or(())?;
+		self.load_sector_containing(cluster)?;
 
-		let clusters_per_sector = self.clusters_per_sector();
-		let relative_cluster = cluster as usize - self.currently_loaded_sector * clusters_per_sector;
+		// let clusters_per_sector = self.clusters_per_sector();
+		// let relative_cluster = cluster as usize - self.currently_loaded_sector * clusters_per_sector;
+
+		let bit_offset = cluster as usize * self.version.get_cluster_bit_size();
+		let relative_bit_offset = bit_offset - self.currently_loaded_sector * 512 * 8;
+		let relative_byte_offset = relative_bit_offset / 8;
 
 		match self.version {
 			FatVersion::Fat12 => {
-				let base = (relative_cluster / 2) * 3;
-				let mut num = u32::from_le_bytes([
-					self.buffer[base],
-					self.buffer[base + 1],
-					self.buffer[base + 2],
-					self.buffer[base + 3],
+				// FAT12 stores nibbles
+				let bit_offset_in_byte = relative_bit_offset % 8;
+				let mut num = u16::from_le_bytes([
+					self.buffer[relative_byte_offset],
+					self.buffer[relative_byte_offset + 1],
 				]);
 
-				if relative_cluster % 2 == 0 {
-					num = (num & !0xFFF) | next_cluster.unwrap_or(0xFFF);
-				} else {
-					num = (num & !(0xFFF << 12)) | (next_cluster.unwrap_or(0xFFF) << 12)
-				};
+				// 000-xxx_xxx-xxx  --  bit_offset_in_byte = 4
+				// xxx-xxx_xxx-000  --  bit_offset_in_byte = 0
 
-				self.buffer[base..base + 4].copy_from_slice(&num.to_le_bytes());
+				num &= !(0xFFF << bit_offset_in_byte);
+				num |= (next_cluster.unwrap_or(0xFFF) as u16) << bit_offset_in_byte;
+
+				self.buffer[relative_byte_offset..relative_byte_offset + 2]
+					.copy_from_slice(&num.to_le_bytes());
 			}
 			FatVersion::Fat16 => {
-				self.buffer[relative_cluster * 2..(relative_cluster + 1) * 2]
+				self.buffer[relative_byte_offset * 2..(relative_byte_offset + 1) * 2]
 					.copy_from_slice(&(next_cluster.unwrap_or(0xFFFF) as u16).to_le_bytes());
 			}
 			FatVersion::Fat32 { .. } => {
-				self.buffer[relative_cluster * 4..(relative_cluster + 1) * 4]
+				self.buffer[relative_byte_offset * 4..(relative_byte_offset + 1) * 4]
 					.copy_from_slice(&next_cluster.unwrap_or(0x0FFF_FFFF).to_le_bytes());
 			}
 		};
@@ -164,10 +187,13 @@ impl FileAllocationTable {
 		Ok(())
 	}
 
+	/// Set `cluster` as being empty
+	// Is it though?
 	fn set_cluster_empty(&mut self, cluster: u32) -> Result<(), ()> {
 		self.set_next_cluster(cluster, Some(0))
 	}
 
+	/// The number of clusters per (FAT) sector
 	fn clusters_per_sector(&self) -> usize {
 		let bits_per_sector = 512 * 8;
 		let clusters_per_sector = bits_per_sector / self.version.get_cluster_bit_size();
@@ -175,6 +201,7 @@ impl FileAllocationTable {
 	}
 }
 
+/// The FAT header
 #[derive(Debug)]
 struct Header {
 	oem_ident: SVec<u8, 8>,
@@ -189,6 +216,7 @@ struct Header {
 	fat_version: FatVersion,
 }
 
+/// The FAT version, also stores the FAT32 unique values
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 enum FatVersion {
 	Fat12,
@@ -200,6 +228,8 @@ enum FatVersion {
 }
 
 impl FatVersion {
+	/// Returns the number of bits in a cluster for the FAT version.
+	// Could this be static/constant? Does it matter?
 	fn get_cluster_bit_size(&self) -> usize {
 		match self {
 			FatVersion::Fat12 => 12,
@@ -210,6 +240,7 @@ impl FatVersion {
 }
 
 impl Header {
+	/// Tries to read a a header from the harddisk
 	fn try_new(sector: &[u8]) -> Result<Self, ()> {
 		let version = if sector[0x16] == 0 {
 			let root_dir_cluster =
@@ -234,7 +265,7 @@ impl Header {
 		};
 
 		if &sector[0x0B..0x0D] != &512u16.to_le_bytes() {
-			panic!("Sector size is not 512");
+			panic!("Sector size is not 512"); // Shouldn't this be an Error?
 		}
 
 		let sectors_per_cluster = sector[0x0D] as _;
@@ -294,7 +325,9 @@ struct Driver {
 	partition: usize,
 	header: Header,
 	fat: FileAllocationTable,
+	/// FAT sector
 	current_loaded_sector: usize,
+	/// Unlike the `fat`, there is no worry of breaching sector boundries here
 	buffer: [u8; 512],
 }
 
@@ -327,6 +360,13 @@ impl Driver {
 		}
 	}
 
+	/// Initilize the driver
+	///
+	/// # Safety
+	///
+	/// There is no check if the driver has already been initialized
+	///
+	/// Requires partitions to already be initialized.
 	unsafe fn initialize(&mut self) {
 		for part in super::partitions::list_partitions() {
 			let start = part.start_sector();
@@ -347,6 +387,7 @@ impl Driver {
 		}
 	}
 
+	/// Load a particular (FAT) sector
 	unsafe fn load_sector(&mut self, sector: usize) {
 		if self.current_loaded_sector == sector {
 			return;
@@ -356,6 +397,7 @@ impl Driver {
 		self.current_loaded_sector = sector;
 	}
 
+	/// Returns the files/directories inside a cluster
 	unsafe fn get_entries_from_cluster(&mut self, cluster: u32) -> SVec<FileInfo, 32> {
 		let root_dir_sectors = (self.header.dir_entries * 32 + 511) / 512;
 		let first_data_sector = self.header.reserved_sectors
@@ -409,6 +451,9 @@ impl Driver {
 		file_entries
 	}
 
+	/// Returns the files/directories of specified path
+	///
+	/// Empty path gives root directory
 	unsafe fn get_entries(&mut self, path: &[u8]) -> Result<SVec<FileInfo, 32>, FatError> {
 		unsafe fn get_entries_2(
 			s: &mut Driver,
@@ -450,6 +495,7 @@ impl Driver {
 		}
 	}
 
+	/// FAT12/16 has special root directories, handled here
 	unsafe fn get_root_entries(&mut self) -> SVec<FileInfo, 32> {
 		match self.header.fat_version {
 			FatVersion::Fat32 {
@@ -501,6 +547,9 @@ impl Driver {
 		}
 	}
 
+	/// Loads the data from a file at `path` into `buffer`.
+	///
+	/// Returns the size of the file succeed or fail.
 	unsafe fn read_file(&mut self, path: Path, buffer: &mut [u8]) -> Result<usize, FatError> {
 		let file_info = self.get_file_info(path)?;
 
@@ -546,7 +595,23 @@ impl Driver {
 		Ok(file_info.size)
 	}
 
+	/// Returns information about the file at `path`
 	unsafe fn get_entry_info(&mut self, path: &[u8]) -> Result<FileInfo, FatError> {
+		if path.len() == 0 {
+			return Ok(FileInfo {
+				name: SVec::new(),
+				size: 0,
+				is_directory: true,
+				first_cluster: if let FatVersion::Fat32 {
+					root_dir_cluster, ..
+				} = self.header.fat_version
+				{
+					root_dir_cluster
+				} else {
+					0
+				},
+			});
+		}
 		assert!(path.len() > 0);
 
 		let mut last_separator_index = None;
@@ -575,6 +640,7 @@ impl Driver {
 		Err(FatError::PathNotFound)
 	}
 
+	/// Get information about file at `path`
 	unsafe fn get_file_info(&mut self, path: &[u8]) -> Result<FileInfo, FatError> {
 		let entry = self.get_entry_info(path)?;
 		if entry.is_directory {
@@ -584,6 +650,7 @@ impl Driver {
 		}
 	}
 
+	/// Get information about directory at `path`
 	unsafe fn get_directory_info(&mut self, path: &[u8]) -> Result<FileInfo, FatError> {
 		let entry = self.get_entry_info(path)?;
 		if !entry.is_directory {
@@ -593,6 +660,11 @@ impl Driver {
 		}
 	}
 
+	/// Creates a empty file at `path`
+	///
+	/// Assumes 8.3 filename
+	///
+	/// (aka `touch`)
 	unsafe fn create_empty_file(&mut self, path: Path) -> Result<FileInfo, FatError> {
 		assert!(self.get_entry_info(path).is_err());
 
@@ -620,36 +692,28 @@ impl Driver {
 
 		let dir_info = self.get_directory_info(dir_path)?;
 
-		let root_dir_sectors = (self.header.dir_entries * 32 + 511) / 512;
-		let first_data_sector = self.header.reserved_sectors
-			+ self.header.fat_count * self.header.sectors_per_fat
-			+ root_dir_sectors;
-		let first_root_dir_sector = first_data_sector - root_dir_sectors;
+		if dir_info.first_cluster == 0 {
+			// Root directory
 
-		let mut current_cluster = dir_info.first_cluster;
+			let root_dir_sectors = (self.header.dir_entries * 32 + 511) / 512;
+			let first_root_dir_sector =
+				self.header.reserved_sectors + self.header.fat_count * self.header.sectors_per_fat;
 
-		let mut new_entry = [0u8; 32];
-
-		new_entry[0..8].copy_from_slice(name.get_slice());
-		new_entry[8..11].copy_from_slice(ext.get_slice());
-
-		loop {
-			println!("current cluster: {}", current_cluster);
-			let cluster_sector =
-				(current_cluster as usize - 2) * self.header.sectors_per_cluster + first_data_sector;
-			for sector in cluster_sector..cluster_sector + self.header.sectors_per_cluster {
-				println!("Starting sector {}", sector);
+			for sector in first_root_dir_sector..first_root_dir_sector + root_dir_sectors {
 				self.load_sector(sector);
 
-				for i in 0..(512 / 32) {
-					let entry = &self.buffer[i * 32..(i + 1) * 32];
-					let entry: DirectoryEntry = entry.try_into().unwrap();
-
-					match entry {
-						DirectoryEntry::Standard { .. } => continue,
-						DirectoryEntry::LongFileName {} => continue,
+				for entry in 0..512 / 32 {
+					let entry = &mut self.buffer[entry * 32..(entry + 1) * 32];
+					let dir_entry: DirectoryEntry = entry.try_into().unwrap();
+					match dir_entry {
+						DirectoryEntry::Standard { .. } | DirectoryEntry::LongFileName { .. } => continue,
 						DirectoryEntry::Unused | DirectoryEntry::Empty => {
-							self.buffer[i * 32..(i + 1) * 32].copy_from_slice(&new_entry);
+							let mut new_entry = [0u8; 32];
+
+							new_entry[0..8].copy_from_slice(name.get_slice());
+							new_entry[8..11].copy_from_slice(ext.get_slice());
+
+							entry.copy_from_slice(&new_entry);
 
 							return Ok(FileInfo {
 								name: file_name.try_into().unwrap(),
@@ -662,42 +726,306 @@ impl Driver {
 				}
 			}
 
-			if let Some(next_cluster) = self.fat.get_next_cluster(current_cluster) {
-				current_cluster = next_cluster;
-				continue;
-			} else {
-				let new_cluster = self.fat.find_empty_cluster(2).unwrap();
+			panic!("Root directory full");
+		} else {
+			let root_dir_sectors = (self.header.dir_entries * 32 + 511) / 512;
+			let first_data_sector = self.header.reserved_sectors
+				+ self.header.fat_count * self.header.sectors_per_fat
+				+ root_dir_sectors;
+			let first_root_dir_sector = first_data_sector - root_dir_sectors;
+
+			let mut current_cluster = dir_info.first_cluster;
+
+			let mut new_entry = [0u8; 32];
+
+			new_entry[0..8].copy_from_slice(name.get_slice());
+			new_entry[8..11].copy_from_slice(ext.get_slice());
+
+			loop {
+				println!("current cluster: {}", current_cluster);
 				let cluster_sector =
 					(current_cluster as usize - 2) * self.header.sectors_per_cluster + first_data_sector;
+				for sector in cluster_sector..cluster_sector + self.header.sectors_per_cluster {
+					println!("Starting sector {}", sector);
+					self.load_sector(sector);
 
-				for i in 0..self.header.sectors_per_cluster {
-					self.load_sector(cluster_sector + i);
-					self.buffer.copy_from_slice(&[0; 512]);
+					for i in 0..(512 / 32) {
+						let entry = &self.buffer[i * 32..(i + 1) * 32];
+						let entry: DirectoryEntry = entry.try_into().unwrap();
+
+						match entry {
+							DirectoryEntry::Standard { .. } => continue,
+							DirectoryEntry::LongFileName {} => continue,
+							DirectoryEntry::Unused | DirectoryEntry::Empty => {
+								self.buffer[i * 32..(i + 1) * 32].copy_from_slice(&new_entry);
+
+								return Ok(FileInfo {
+									name: file_name.try_into().unwrap(),
+									size: 0,
+									is_directory: false,
+									first_cluster: 0,
+								});
+							}
+						}
+					}
 				}
 
-				self.load_sector(cluster_sector);
-				self.buffer[0..32].copy_from_slice(&new_entry);
+				if let Some(next_cluster) = self.fat.get_next_cluster(current_cluster) {
+					current_cluster = next_cluster;
+					continue;
+				} else {
+					let new_cluster = self.fat.find_empty_cluster(2).unwrap();
+					let cluster_sector =
+						(current_cluster as usize - 2) * self.header.sectors_per_cluster + first_data_sector;
 
-				self
-					.fat
-					.set_next_cluster(current_cluster, Some(new_cluster))
-					.unwrap();
-				self.fat.set_next_cluster(new_cluster, None).unwrap();
+					for i in 0..self.header.sectors_per_cluster {
+						self.load_sector(cluster_sector + i);
+						self.buffer.copy_from_slice(&[0; 512]);
+					}
 
-				return Ok(FileInfo {
-					name: file_name.try_into().unwrap(),
-					size: 0,
-					is_directory: false,
-					first_cluster: 0,
-				});
+					self.load_sector(cluster_sector);
+					self.buffer[0..32].copy_from_slice(&new_entry);
+
+					self
+						.fat
+						.set_next_cluster(current_cluster, Some(new_cluster))
+						.unwrap();
+					self.fat.set_next_cluster(new_cluster, None).unwrap();
+
+					self.flush();
+
+					return Ok(FileInfo {
+						name: file_name.try_into().unwrap(),
+						size: 0,
+						is_directory: false,
+						first_cluster: 0,
+					});
+				}
 			}
 		}
 	}
 
+	/// Writes a `data` to disk at `path`
+	///
+	/// # Safety
+	///
+	/// The dynamic allocator must be initialized.
 	unsafe fn write_file(&mut self, path: Path, data: &[u8]) -> Result<(), FatError> {
-		todo!()
+		let mut file_info = match self.get_file_info(path) {
+			Ok(f) => f,
+			Err(FatError::IsDirectory) => return Err(FatError::IsDirectory),
+			Err(FatError::PathNotFound) => self.create_empty_file(path)?,
+			_ => unreachable!(),
+		};
+
+		let old_size = file_info.size;
+		let new_size = data.len();
+
+		let sectors_per_cluster = self.header.sectors_per_cluster;
+		let bytes_per_cluster = sectors_per_cluster * 512;
+		let old_cluster_count = (old_size + bytes_per_cluster - 1) / bytes_per_cluster;
+		let new_cluster_count = (new_size + bytes_per_cluster - 1) / bytes_per_cluster;
+
+		let old_cluster_count = if file_info.first_cluster == 0 {
+			let new_cluster = self
+				.fat
+				.find_empty_cluster(2)
+				.ok_or(FatError::FileSystemFull)?;
+			self.fat.set_next_cluster(new_cluster, None).unwrap();
+
+			file_info.first_cluster = new_cluster;
+			1
+		} else {
+			old_cluster_count
+		};
+
+		if new_cluster_count > old_cluster_count {
+			// Extend cluster chain
+
+			let mut current_cluster = file_info.first_cluster;
+			while let Some(next_cluster) = self.fat.get_next_cluster(current_cluster) {
+				assert_ne!(next_cluster, 0);
+				current_cluster = next_cluster;
+			}
+			let mut last_cluster = current_cluster;
+
+			let clusters_to_allocate = new_cluster_count - old_cluster_count;
+
+			let mut traversed_clusters = vec![];
+
+			for i in 0..clusters_to_allocate {
+				let new_cluster = match self.fat.find_empty_cluster(2) {
+					Some(new_cluster) => new_cluster,
+					None => {
+						for cluster in traversed_clusters {
+							self.fat.set_cluster_empty(cluster).unwrap();
+						}
+						self.fat.set_next_cluster(current_cluster, None).unwrap();
+						return Err(FatError::FileSystemFull);
+					}
+				};
+				self
+					.fat
+					.set_next_cluster(last_cluster, Some(new_cluster))
+					.unwrap();
+				last_cluster = new_cluster;
+				traversed_clusters.push(new_cluster);
+			}
+			self.fat.set_next_cluster(last_cluster, None).unwrap();
+		} else if new_cluster_count < old_cluster_count {
+			// Truncate cluster chain
+
+			let mut last_cluster = file_info.first_cluster;
+			for i in 0..new_cluster_count - 1 {
+				last_cluster = self.fat.get_next_cluster(last_cluster).unwrap();
+			}
+			// last_cluster is now the last cluster in the new chain
+			let mut current_cluster = self.fat.get_next_cluster(last_cluster).unwrap();
+			self.fat.set_next_cluster(last_cluster, None).unwrap();
+			// current_cluster is the first cluster to be removed
+
+			while let Some(next_cluster) = self.fat.get_next_cluster(current_cluster) {
+				self.fat.set_cluster_empty(current_cluster).unwrap();
+				current_cluster = next_cluster;
+			}
+			self.fat.set_cluster_empty(current_cluster).unwrap();
+		}
+
+		// Write clusters
+		let mut current_cluster = file_info.first_cluster;
+
+		let first_data_sector = self.first_data_sector();
+		let mut written_cluster_count = 0;
+
+		loop {
+			let cluster_start_sector =
+				(current_cluster as usize - 2) * sectors_per_cluster + first_data_sector;
+
+			for sector_offset in 0..self.header.sectors_per_cluster {
+				self.load_sector(cluster_start_sector + sector_offset);
+
+				let byte_offset = (written_cluster_count * sectors_per_cluster + sector_offset) * 512;
+				let rest_size = new_size.saturating_sub(byte_offset).min(512);
+				if rest_size > 0 {
+					self.buffer[0..rest_size].copy_from_slice(&data[byte_offset..byte_offset + rest_size]);
+				}
+			}
+
+			match self.fat.get_next_cluster(current_cluster) {
+				Some(next_cluster) => current_cluster = next_cluster,
+				None => break,
+			}
+			written_cluster_count += 1;
+		}
+
+		file_info.size = new_size;
+		self.update_file_info(path, file_info).unwrap();
+
+		self.flush();
+
+		Ok(())
 	}
 
+	unsafe fn update_file_info(
+		&mut self,
+		path: &[u8],
+		new_file_info: FileInfo,
+	) -> Result<(), FatError> {
+		assert!(self.get_entry_info(path).is_ok());
+
+		let (mut dir_path, mut file_name) = path.split_last_2(&SEPARATOR_CHAR);
+		if file_name.len() == 0 {
+			core::mem::swap(&mut dir_path, &mut file_name);
+		}
+
+		let dir_info = self.get_directory_info(dir_path)?;
+
+		if dir_info.first_cluster == 0 {
+			// Root directory
+
+			let root_dir_sectors = (self.header.dir_entries * 32 + 511) / 512;
+			let first_root_dir_sector =
+				self.header.reserved_sectors + self.header.fat_count * self.header.sectors_per_fat;
+
+			for sector in first_root_dir_sector..first_root_dir_sector + root_dir_sectors {
+				self.load_sector(sector);
+
+				for entry in 0..512 / 32 {
+					let entry = &mut self.buffer[entry * 32..(entry + 1) * 32];
+					let dir_entry: DirectoryEntry = entry.try_into().unwrap();
+					match dir_entry {
+						DirectoryEntry::Standard {
+							file_name: ref name,
+							..
+						} if name.get_slice() == file_name => {
+							let mut dir_entry = dir_entry;
+							dir_entry.update(new_file_info);
+							let new_file_info: [u8; 32] = dir_entry.into();
+							entry.copy_from_slice(&new_file_info);
+							return Ok(());
+						}
+						_ => continue,
+					}
+				}
+			}
+
+			unreachable!()
+		} else {
+			let root_dir_sectors = (self.header.dir_entries * 32 + 511) / 512;
+			let first_data_sector = self.header.reserved_sectors
+				+ self.header.fat_count * self.header.sectors_per_fat
+				+ root_dir_sectors;
+			let first_root_dir_sector = first_data_sector - root_dir_sectors;
+
+			let mut current_cluster = dir_info.first_cluster;
+
+			loop {
+				println!("current cluster: {}", current_cluster);
+				let cluster_sector =
+					(current_cluster as usize - 2) * self.header.sectors_per_cluster + first_data_sector;
+				for sector in cluster_sector..cluster_sector + self.header.sectors_per_cluster {
+					println!("Starting sector {}", sector);
+					self.load_sector(sector);
+
+					for i in 0..(512 / 32) {
+						let entry = &mut self.buffer[i * 32..(i + 1) * 32];
+						let dir_entry: DirectoryEntry = entry.try_into().unwrap();
+
+						match dir_entry {
+							DirectoryEntry::Standard {
+								file_name: ref name,
+								..
+							} if name.get_slice() == file_name => {
+								let mut dir_entry = dir_entry;
+								dir_entry.update(new_file_info);
+								let new_file_info: [u8; 32] = dir_entry.into();
+								entry.copy_from_slice(&new_file_info);
+								return Ok(());
+							}
+							_ => continue,
+						}
+					}
+				}
+
+				if let Some(next_cluster) = self.fat.get_next_cluster(current_cluster) {
+					current_cluster = next_cluster;
+					continue;
+				} else {
+					unreachable!()
+				}
+			}
+		}
+	}
+
+	fn first_data_sector(&mut self) -> usize {
+		let root_dir_sectors = (self.header.dir_entries * 32 + 511) / 512;
+		let first_data_sector = self.header.reserved_sectors
+			+ self.header.fat_count * self.header.sectors_per_fat
+			+ root_dir_sectors;
+		first_data_sector
+	}
+
+	/// Writes the buffer to disk
 	fn flush(&mut self) {
 		unsafe {
 			super::partitions::write_sectors(0, self.current_loaded_sector, &self.buffer);
@@ -710,7 +1038,9 @@ pub enum FatError {
 	PathNotFound,
 	IsntDirectory,
 	IsDirectory,
+	/// How big the file is
 	BufferTooSmall(usize),
+	FileSystemFull,
 }
 
 enum DirectoryEntry {
@@ -725,9 +1055,30 @@ enum DirectoryEntry {
 	Empty,
 }
 
+impl DirectoryEntry {
+	fn update(&mut self, file_info: FileInfo) {
+		match self {
+			DirectoryEntry::Standard {
+				file_name,
+				attributes,
+				first_cluster,
+				file_size,
+			} => {
+				*file_name = file_info.name;
+				// Set or clear directory flag (0x10) depending on file_info.is_directory
+				*attributes = if file_info.is_directory { 0x10 } else { 0x00 } | (*attributes & !0x10);
+				*first_cluster = file_info.first_cluster;
+				*file_size = file_info.size as _;
+			}
+			_ => unimplemented!(),
+		}
+	}
+}
+
 impl TryFrom<&[u8]> for DirectoryEntry {
 	type Error = ();
 
+	/// Tries to get information about the directory
 	fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
 		if value.len() != 32 {
 			return Err(());
@@ -789,6 +1140,60 @@ impl TryFrom<&[u8]> for DirectoryEntry {
 	}
 }
 
+impl TryFrom<&mut [u8]> for DirectoryEntry {
+	type Error = ();
+
+	fn try_from(value: &mut [u8]) -> Result<Self, Self::Error> {
+		(&*value).try_into()
+	}
+}
+
+impl Into<[u8; 32]> for DirectoryEntry {
+	fn into(self) -> [u8; 32] {
+		match self {
+			DirectoryEntry::Standard {
+				file_name,
+				attributes,
+				first_cluster,
+				file_size,
+			} => {
+				let mut ret = [0; 32];
+
+				let mut name = SVec::<u8, 8>::new();
+				let mut ext = SVec::<u8, 3>::new();
+				let (bare_name, extension) = file_name.get_slice().split_last_2(&b'.');
+				for &b in bare_name {
+					name.push(b);
+				}
+				for _ in name.len()..name.capacity() {
+					name.push(b' ');
+				}
+				for &b in extension {
+					ext.push(b);
+				}
+				for _ in ext.len()..ext.capacity() {
+					ext.push(b' ');
+				}
+
+				ret[0..8].copy_from_slice(name.get_slice());
+				ret[8..11].copy_from_slice(ext.get_slice());
+				ret[11] = attributes;
+				ret[20..22].copy_from_slice(&((first_cluster >> 16) as u16).to_le_bytes());
+				ret[26..28].copy_from_slice(&(first_cluster as u16).to_le_bytes());
+				ret[28..32].copy_from_slice(&file_size.to_le_bytes());
+
+				ret
+			}
+			_ => unimplemented!(),
+		}
+	}
+}
+
+/// Initializes the FAT32 driver
+///
+/// # Safety
+///
+/// Requires partitions to have been initialized
 pub unsafe fn initialize() {
 	DRIVER.initialize();
 	// for file in driver.get_entries(b"").unwrap().get_slice() {
@@ -801,31 +1206,61 @@ pub unsafe fn initialize() {
 	// }
 }
 
-pub unsafe fn write_file(path: Path, data: &[u8]) {
-	todo!()
+/// Writes `data` to `path`
+pub unsafe fn write_file(path: Path, data: &[u8]) -> Result<(), FatError> {
+	DRIVER.write_file(path, data)
 }
 
+/// Puts the data from `path` in `buffer`
+///
+/// Returns size of file, succeed or fail.
 pub unsafe fn read_file(path: Path, buffer: &mut [u8]) -> Result<usize, FatError> {
 	DRIVER.read_file(path, buffer)
 }
 
+/// Get the `FileInfo` for the file at `path`
 pub unsafe fn get_file_info(path: Path) -> FileInfo {
 	DRIVER.get_entry_info(path).unwrap()
 }
 
+/// Lists all entries in `directory_path`
 pub unsafe fn list_entries(directory_path: Path) -> Result<SVec<FileInfo, 32>, FatError> {
 	DRIVER.get_entries(directory_path)
 }
 
+/// `touch`
+///
+/// Creates an empty file at `path`
 pub unsafe fn create_empty_file(path: Path) -> Result<FileInfo, FatError> {
 	DRIVER.create_empty_file(path)
 }
 
+/// Used to split directories from each other in paths
 pub trait SplitLast<T>: Sized {
 	fn split_last_2(self, v: &T) -> (Self, Self);
 }
 
 impl<T: PartialEq> SplitLast<T> for &[T] {
+	/// Splits at the last occurence of `v`
+	///
+	/// # Example
+	/// ```
+	/// let s:SVec<char, 6> = SVec::new();
+	/// s.push("r")
+	/// s.push("o")
+	/// s.push("o")
+	/// s.push("t")
+	/// s.push("/")
+	/// s.push("d")
+	/// s.push("i")
+	/// s.push("r")
+	/// s.push("/")
+	/// s.push("f")
+	/// s.push("i")
+	/// s.push("l")
+	/// s.push("e")
+	///
+	/// asserteq!(("root".as_slice(), "dir/file".as_slice()), s.get_slice().split_last_2("/"));
 	fn split_last_2(self, v: &T) -> (Self, Self) {
 		let mut last_separator_index = None;
 		for (i, b) in self.iter().enumerate() {

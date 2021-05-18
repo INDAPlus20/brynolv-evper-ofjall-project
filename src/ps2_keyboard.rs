@@ -25,6 +25,7 @@ static DRIVER: Mutex<Driver> = Mutex::new(Driver::new());
 static HAS_KEYEVENT_IN_BUFFER: AtomicBool = AtomicBool::new(false);
 
 struct Driver {
+	/// Used for multi-byte scancodes.
 	state: DriverState,
 	pressed_keys: [bool; 256],
 	keyevent_buffer: SVec<KeyEvent, 256>,
@@ -39,6 +40,7 @@ impl Driver {
 		}
 	}
 
+	/// Handle a single byte, adding it to the chain of bytes if it is not a 1-byte scancode.
 	fn handle_byte(&mut self, byte: u8) {
 		match &mut self.state {
 			DriverState::WaitingForNewKeypress => {
@@ -87,6 +89,7 @@ impl Driver {
 		}
 	}
 
+	/// Converts a scancode into a `KeyCode`.
 	fn handle_scancode(&mut self, scancode: &mut [u8]) {
 		let was_released = match scancode {
 			[b] | [0xE0, b] => {
@@ -177,11 +180,11 @@ impl Driver {
 			[0x47] => KeyCode::Numpad7,
 			[0x48] => KeyCode::Numpad8,
 			[0x49] => KeyCode::Numpad9,
-			[0x4A] => KeyCode::NumbadSubtract,
+			[0x4A] => KeyCode::NumpadSubtract,
 			[0x4B] => KeyCode::Numpad4,
 			[0x4C] => KeyCode::Numpad5,
 			[0x4D] => KeyCode::Numpad6,
-			[0x4E] => KeyCode::NumbadAdd,
+			[0x4E] => KeyCode::NumpadAdd,
 			[0x4F] => KeyCode::Numpad1,
 			[0x50] => KeyCode::Numpad2,
 			[0x51] => KeyCode::Numpad3,
@@ -197,7 +200,7 @@ impl Driver {
 			[0xE0, 0x20] => KeyCode::Mute,
 			[0xE0, 0x21] => KeyCode::Calculator,
 			[0xE0, 0x22] => KeyCode::PlayPause,
-			[0xE0, 0x24] => KeyCode::Unknown, //Stop
+			[0xE0, 0x24] => KeyCode::Unknown, // Stop
 			[0xE0, 0x2E] => KeyCode::VolumeDown,
 			[0xE0, 0x30] => KeyCode::VolumeUp,
 			[0xE0, 0x32] => KeyCode::Unknown, // WWW home
@@ -213,21 +216,21 @@ impl Driver {
 			[0xE0, 0x51] => KeyCode::PageDown,
 			[0xE0, 0x52] => KeyCode::Insert,
 			[0xE0, 0x53] => KeyCode::Delete,
-			[0xE0, 0x5B] => KeyCode::LeftMeta,  //left GUI
-			[0xE0, 0x5C] => KeyCode::RightMeta, //right GUI
-			[0xE0, 0x5D] => KeyCode::Menu,      //"apps"
-			[0xE0, 0x5E] => KeyCode::Unknown,   //Power
-			[0xE0, 0x5F] => KeyCode::Unknown,   //Sleep
-			[0xE0, 0x63] => KeyCode::Unknown,   //Wake
-			[0xE0, 0x65] => KeyCode::Unknown,   //WWW search
-			[0xE0, 0x66] => KeyCode::Unknown,   //WWW favorites
-			[0xE0, 0x67] => KeyCode::Unknown,   //WWW refesh (Maybe bind to F5?)
-			[0xE0, 0x68] => KeyCode::Unknown,   //WWW stop
-			[0xE0, 0x69] => KeyCode::Unknown,   //WWW forward
-			[0xE0, 0x6A] => KeyCode::Unknown,   //WWW back
-			[0xE0, 0x6B] => KeyCode::Unknown,   //My computer
-			[0xE0, 0x6C] => KeyCode::Unknown,   //email
-			[0xE0, 0x6D] => KeyCode::Unknown,   //media select
+			[0xE0, 0x5B] => KeyCode::LeftMeta,  // left GUI
+			[0xE0, 0x5C] => KeyCode::RightMeta, // right GUI
+			[0xE0, 0x5D] => KeyCode::Menu,      // "apps"
+			[0xE0, 0x5E] => KeyCode::Unknown,   // Power
+			[0xE0, 0x5F] => KeyCode::Unknown,   // Sleep
+			[0xE0, 0x63] => KeyCode::Unknown,   // Wake
+			[0xE0, 0x65] => KeyCode::Unknown,   // WWW search
+			[0xE0, 0x66] => KeyCode::Unknown,   // WWW favorites
+			[0xE0, 0x67] => KeyCode::Unknown,   // WWW refesh (Maybe bind to F5?)
+			[0xE0, 0x68] => KeyCode::Unknown,   // WWW stop
+			[0xE0, 0x69] => KeyCode::Unknown,   // WWW forward
+			[0xE0, 0x6A] => KeyCode::Unknown,   // WWW back
+			[0xE0, 0x6B] => KeyCode::Unknown,   // My computer
+			[0xE0, 0x6C] => KeyCode::Unknown,   // email
+			[0xE0, 0x6D] => KeyCode::Unknown,   // media select
 			[0xE0, 0x2A, 0xE0, 0x37] => KeyCode::PrintScreen,
 			[0xE1, 0x1D, 0x45, 0xE1, 0x9D, 0xC5] => KeyCode::PauseBreak,
 			_ => panic!("Unrecognized keycode"),
@@ -275,6 +278,9 @@ impl Driver {
 		}
 	}
 
+	/// Translates a printable `KeyCode` to it's corrosponding `char`
+	/// `None` if no such char exists.
+	/// Uses Swedish keyboard layout, except for NumpadDecimal `,` -> `.`
 	fn translate_keycode(&self, keycode: KeyCode, modifiers: Modifiers) -> Option<char> {
 		const NONE: Modifiers = Modifiers::NONE;
 		const SHIFT: Modifiers = Modifiers::SHIFT;
@@ -296,7 +302,7 @@ impl Driver {
 			(KeyCode::Accent, NONE) => '´',
 			(KeyCode::NumpadDivide, NONE) => '/',
 			(KeyCode::NumpadMultiply, NONE) => '*',
-			(KeyCode::NumbadSubtract, NONE) => '-',
+			(KeyCode::NumpadSubtract, NONE) => '-',
 			(KeyCode::Tab, NONE) => '\t',
 			(KeyCode::Q, NONE) => 'q',
 			(KeyCode::W, NONE) => 'w',
@@ -314,7 +320,7 @@ impl Driver {
 			(KeyCode::Numpad7, NONE) => '7',
 			(KeyCode::Numpad8, NONE) => '8',
 			(KeyCode::Numpad9, NONE) => '9',
-			(KeyCode::NumbadAdd, NONE) => '+',
+			(KeyCode::NumpadAdd, NONE) => '+',
 			(KeyCode::A, NONE) => 'a',
 			(KeyCode::S, NONE) => 's',
 			(KeyCode::D, NONE) => 'd',
@@ -364,7 +370,7 @@ impl Driver {
 			(KeyCode::Accent, SHIFT) => '`',
 			(KeyCode::NumpadDivide, SHIFT) => '/',
 			(KeyCode::NumpadMultiply, SHIFT) => '*',
-			(KeyCode::NumbadSubtract, SHIFT) => '-',
+			(KeyCode::NumpadSubtract, SHIFT) => '-',
 			(KeyCode::Tab, SHIFT) => '\t',
 			(KeyCode::Q, SHIFT) => 'Q',
 			(KeyCode::W, SHIFT) => 'W',
@@ -379,7 +385,7 @@ impl Driver {
 			(KeyCode::Å, SHIFT) => 'Å',
 			(KeyCode::Umlaut, SHIFT) => '^',
 			(KeyCode::Enter, SHIFT) => '\n',
-			(KeyCode::NumbadAdd, SHIFT) => '+',
+			(KeyCode::NumpadAdd, SHIFT) => '+',
 			(KeyCode::A, SHIFT) => 'A',
 			(KeyCode::S, SHIFT) => 'S',
 			(KeyCode::D, SHIFT) => 'D',
@@ -434,11 +440,18 @@ enum DriverState {
 	InTheMiddleOfReceivingAKeypress(SVec<u8, 6>),
 }
 
+/// A Key Event from the keyboard
+/// Never a release event, those are handled internally by the driver.
 #[derive(Clone)]
 pub struct KeyEvent {
+	/// The `KeyCode` of the event
 	pub keycode: KeyCode,
+	/// Which modifier keys where pressed during this event
 	pub modifiers: Modifiers,
+	/// Which printable `char` this corresponds to
+	/// (`None` if non-printable)
 	pub char: Option<char>,
+	/// Was the key released since the last event?
 	pub state: KeyState,
 }
 
@@ -484,7 +497,7 @@ pub enum KeyCode {
 	NumLock,
 	NumpadDivide,
 	NumpadMultiply,
-	NumbadSubtract,
+	NumpadSubtract,
 	Tab,
 	Q,
 	W,
@@ -505,7 +518,7 @@ pub enum KeyCode {
 	Numpad7,
 	Numpad8,
 	Numpad9,
-	NumbadAdd,
+	NumpadAdd,
 
 	CapsLock,
 	A,
@@ -567,6 +580,14 @@ pub enum KeyCode {
 }
 
 impl KeyCode {
+	/// Write the printable `char` of the keycode
+	///
+	/// Replaces
+	/// - Å -> AO
+	/// - Ä -> AE
+	/// - Ö -> OE
+	///
+	/// for ASCII compatibility.
 	fn write<W: core::fmt::Write>(&self, w: &mut W) {
 		match self {
 			Self::Å => write!(w, "AO"),
@@ -586,11 +607,11 @@ pub enum KeyState {
 
 #[derive(PartialEq, Eq, Clone, Copy)]
 pub struct Modifiers {
-	shift: bool,
-	alt: bool,
-	altgr: bool,
-	ctrl: bool,
-	meta: bool,
+	pub shift: bool,
+	pub alt: bool,
+	pub altgr: bool,
+	pub ctrl: bool,
+	pub meta: bool,
 }
 
 impl Modifiers {
@@ -638,6 +659,8 @@ impl Modifiers {
 	};
 }
 
+/// Get a `KeyEvent` from the keyboard
+///
 /// Be careful of deadlocks when calling this function from an interrupt handler
 pub fn get_key_event() -> KeyEvent {
 	while HAS_KEYEVENT_IN_BUFFER.load(Ordering::Acquire) == false {}
