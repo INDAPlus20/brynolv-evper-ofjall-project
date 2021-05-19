@@ -282,7 +282,7 @@ impl Widget for SaveDialog {
 			Align::Center,
 			"Save File",
 			text_color,
-			main_color,
+			title_bar_color,
 			None,
 		);
 
@@ -298,7 +298,7 @@ impl Widget for SaveDialog {
 			Align::Center,
 			s.unwrap(),
 			text_color,
-			title_bar_color,
+			main_color,
 			None,
 		);
 
