@@ -22,7 +22,7 @@ jobs:
       with:
         profile: minimal
         toolchain: nightly
+        components: rustfmt
         override: true
-    - run: rustup component add rustfmt --toolchain nightly
     - name: rustfmt
       run: cargo +nightly fmt --all -- --check
