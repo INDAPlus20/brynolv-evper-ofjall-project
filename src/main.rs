@@ -26,6 +26,7 @@ mod ps2;
 mod ps2_keyboard;
 mod svec;
 
+use alloc::format;
 use core::{
 	panic::PanicInfo,
 	sync::atomic::{AtomicBool, Ordering},
@@ -53,7 +54,7 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
 			match path_buffer.get_slice().split_last_2(&b' ') {
 				(b"read", path) => match unsafe { harddisk::fat32::list_entries(path) } {
 					Ok(e) => {
-						for e in e.get_slice() {
+						for e in e {
 							println!(
 								"{:12}  {:3}  {}",
 								e.name.to_str(),
@@ -84,6 +85,20 @@ pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
 					match unsafe { harddisk::fat32::write_file(path, data_to_write) } {
 						Ok(_) => {}
 						Err(e) => println!("Error: {:#?}", e),
+					}
+				}
+				(b"test", _) => {
+					for i in 0..32 {
+						println!("Creating file {}", i);
+						match unsafe {
+							harddisk::fat32::write_file(
+								format!("EFI>{}", i).as_bytes(),
+								format!("File number {}\n", i).as_bytes(),
+							)
+						} {
+							Ok(_) => {}
+							Err(e) => println!("Error: {:#?}", e),
+						}
 					}
 				}
 				(other, _) => println!(
