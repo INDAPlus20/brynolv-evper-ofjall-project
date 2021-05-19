@@ -620,7 +620,7 @@ impl Widget for Editor {
 					let save_file =
 						SaveDialog::new(self.current_file_path.clone(), "editor:save_file".into());
 					unsafe {
-						display::add_widget(Box::new(save_file));
+						display::add_widget(save_file);
 					}
 					Response::Nothing
 				}
@@ -631,7 +631,7 @@ impl Widget for Editor {
 				} => {
 					let open_file = OpenDialog::new(Vec::new(), "editor:open_file".into());
 					unsafe {
-						display::add_widget(Box::new(open_file));
+						display::add_widget(open_file);
 					}
 					Response::Nothing
 				}

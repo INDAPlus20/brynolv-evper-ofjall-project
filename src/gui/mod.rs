@@ -20,5 +20,5 @@ pub mod display;
 pub unsafe fn initialize(framebuffer: FrameBuffer) {
 	display::initialize(framebuffer);
 	let editor = widget::editor::Editor::new();
-	display::add_widget(Box::new(editor));
+	display::add_widget(editor);
 }

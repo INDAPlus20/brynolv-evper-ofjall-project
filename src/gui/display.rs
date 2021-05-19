@@ -332,7 +332,7 @@ impl<'a> Window<'a> {
 					skip += 1;
 				}
 
-				for c in string.chars() {
+				for c in string.chars().skip(skip) {
 					if x + 8 * scale > rect.x + rect.width {
 						break;
 					}
@@ -566,8 +566,10 @@ impl Display {
 	/// Draw the widgets to the screen.
 	fn draw(&mut self) {
 		for i in 0..self.widgets.len() {
-			let window = (&mut self.framebuffer).into();
-			self.widgets[i].draw(window);
+			if self.widgets[i].dirty() {
+				let window = (&mut self.framebuffer).into();
+				self.widgets[i].draw(window);
+			}
 		}
 	}
 
@@ -616,8 +618,8 @@ pub(super) unsafe fn initialize(framebuffer: FrameBuffer) {
 	DISPLAY.widgets.clear();
 }
 
-pub unsafe fn add_widget(widget: Box<dyn Widget>) {
-	DISPLAY.add_widget(widget)
+pub unsafe fn add_widget<W: Widget + 'static>(widget: W) {
+	DISPLAY.add_widget(Box::new(widget))
 }
 
 pub unsafe fn send_event(event: Event) {

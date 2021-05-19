@@ -40,12 +40,18 @@ use core::{
 };
 
 use bootloader::BootInfo;
-use gui::widget::{message_box::MessageBox, Event, Widget};
+use gui::widget::{
+	message_box::{ButtonTypes, MessageBox},
+	Event, Widget,
+};
 use harddisk::fat32::FatError;
 use ps2_keyboard::KeyState;
 
 use crate::{
-	gui::{display::Point, widget::container::Container},
+	gui::{
+		display::{Color, Point},
+		widget::container::Container,
+	},
 	ps2_keyboard::{KeyCode, KeyEvent, Modifiers},
 	svec::SVec,
 };
@@ -143,24 +149,13 @@ fn panic_handler(info: &PanicInfo) -> ! {
 		ORIGINAL_MESSAGE = Some(msg.clone());
 	}
 
-	let char_count = msg.chars().count();
-	let mut widget = MessageBox::new("Panic!".into(), msg);
+	let mut message_box = MessageBox::new("Panic!".into(), msg, ButtonTypes::None, "".into());
 
-	let res = unsafe { gui::display::resolution() };
-
-	let max_line_count = (res.x - 32) / 8;
-	let mut rows = 1;
-	while char_count.saturating_sub((rows - 1) * max_line_count) > max_line_count {
-		rows += 1;
-	}
-
-	let max_line_length = char_count.min(max_line_count);
-
-	let inner = Point::new(max_line_length * 8 + 16, rows * 16 + 16 + 32);
-	let mut container = Container::new(widget, inner);
+	message_box.title_bar_color.red += 0x30;
+	message_box.background_color.red += 0x20;
 
 	unsafe {
-		gui::display::add_widget(Box::new(container));
+		gui::display::add_widget(message_box);
 	}
 
 	unsafe {
