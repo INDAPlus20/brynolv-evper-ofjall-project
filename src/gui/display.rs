@@ -325,7 +325,7 @@ impl<'a> Window<'a> {
 			(Align::Center, true) => todo!(),
 			(Align::Center, false) => {
 				let char_count = string.chars().count();
-				let mut x = rect.x + rect.width / 2;
+				let mut x = rect.x + rect.width / 2 - char_count * 4;
 				let mut skip = 0;
 				while x < rect.x {
 					x += 8;
