@@ -295,10 +295,11 @@ impl<'a> Window<'a> {
 						break;
 					}
 					let mut x = rect.x;
-					while let Some(c) = chars.next() {
+					while let Some(&c) = chars.peek() {
 						if x + 8 * scale > rect.x + rect.width {
 							break;
 						}
+						chars.next();
 						self.draw_char(Point::new(x, y), scale, c, foreground, background, font);
 						x += 8 * scale;
 					}
