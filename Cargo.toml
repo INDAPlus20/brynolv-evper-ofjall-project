@@ -6,6 +6,10 @@ edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[package.metadata.bootloader]
+map-physical-memory = true
+physical-memory-offset = "0xffff_ff80_0000_0000"
+
 [dependencies]
 bootloader = "0.10"
 rlibc = "*"

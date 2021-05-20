@@ -14,6 +14,8 @@ run = False
 # Wether qemu should wait for a connection from gdb before
 # starting execution or not.
 gdb = False
+# Wether the file test.txt should be added to the file system.
+add_file = False
 
 def print_usage():
     print("usage: python build.py [options...]")
@@ -34,6 +36,9 @@ for arg in sys.argv[1:]:
         print("         Tells qemu to wait for a connection from gdb at port 1234")
         print("         before starting execution.")
         print("         Must be used in conjunction with 'run'.")
+        print("     add-file")
+        print("         Adds the file 'test.txt' to the file system.")
+        print("         Currently doesn't work on Windows.")
         print("     help")
         print("         Prints this help screen, and then exits.")
         exit(0)
@@ -51,6 +56,14 @@ for arg in sys.argv[1:]:
             used_options.append('run')
         else:
             print("Error: Option 'run' specified twice")
+            print_usage()
+            exit(1)
+    elif arg == 'add-file':
+        if 'add-file' not in used_options:
+            add_file = True
+            used_options.append('add-file')
+        else:
+            print("Error: Option 'add-file' specified twice")
             print_usage()
             exit(1)
     elif arg == 'gdb':
@@ -151,8 +164,11 @@ if result.returncode != 0:
 # - boot-uefi-brynolv-evper-ofjall-project.img
 # What these files are used for is described at https://docs.rs/bootloader/0.10.1/bootloader/
 
+if add_file:
+    subprocess.run(['./insert-file.sh'])
+
 if run:
-    run_command = ['qemu-system-x86_64', 'out/boot-bios-brynolv-evper-ofjall-project.img']
+    run_command = ['qemu-system-x86_64', '-bios', 'bios.bin', 'out/boot-uefi-brynolv-evper-ofjall-project.img']
     if gdb:
         run_command += ['-s', '-S']
     subprocess.run(run_command)
