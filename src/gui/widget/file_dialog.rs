@@ -1,6 +1,9 @@
 use alloc::{string::String, vec::Vec};
 
-use super::{Event, Response, Widget};
+use super::{
+	message_box::{ButtonTypes, MessageBox},
+	Event, Response, Widget,
+};
 use crate::{
 	gui::display::{self, Align, Color, Point, Rect, Window},
 	harddisk::{self, fat32::FileInfo},
@@ -345,12 +348,38 @@ impl Widget for SaveDialog {
 						return Response::Nothing;
 					}
 
-					if unsafe { harddisk::fat32::is_valid_file_path(&self.current_path).is_ok() } {
-						// TODO: Prompt if file already exists
-						unsafe { display::send_event(Event::Custom(&self.receiver, &self.current_path)) };
-						return Response::RemoveMe;
+					// If user entered an invalid file path
+					if unsafe { harddisk::fat32::is_valid_file_path(&self.current_path).is_err() } {
+						// Prompt user about invalid path
+						let message_box = MessageBox::new(
+							"Error".into(),
+							"Invalid file path, Please enter a proper one!".into(),
+							ButtonTypes::Ok,
+							"".into(),
+						);
+						unsafe {
+							display::add_widget(message_box);
+						}
+						return Response::Nothing;
 					}
-					Response::Nothing
+
+					// If file already exists, prompt user about overwriting it
+					if unsafe { harddisk::fat32::get_file_info(&self.current_path).is_ok() } {
+						let message_box = MessageBox::new(
+							"File already exists".into(),
+							"A file with this name already exists. Do you want to overwrite it?".into(),
+							ButtonTypes::ConfirmCancel,
+							"file_dialog:overwrite_file".into(),
+						);
+						unsafe {
+							display::add_widget(message_box);
+						}
+						return Response::Nothing;
+					}
+
+					// Send event with entered path back to editor and remove this dialog
+					unsafe { display::send_event(Event::Custom(&self.receiver, &self.current_path)) };
+					return Response::RemoveMe;
 				}
 				KeyEvent { char: Some(c), .. } => {
 					let mut buf = [0; 4];
@@ -370,6 +399,19 @@ impl Widget for SaveDialog {
 					..
 				} => Response::RemoveMe,
 				_ => Response::Nothing,
+			},
+			// Handles the response from the overwrite file message box
+			Event::Custom("file_dialog:overwrite_file", choice) => match choice.downcast_ref::<&str>() {
+				Some(choice) => {
+					// User wants to overwrite
+					if *choice == "confirm" {
+						// Send event with entered path back to editor and remove this dialog
+						unsafe { display::send_event(Event::Custom(&self.receiver, &self.current_path)) };
+						return Response::RemoveMe;
+					}
+					Response::Nothing
+				}
+				None => panic!("Wrong type for event 'file_dialog:overwrite_file'"),
 			},
 			Event::Custom(..) => Response::NotHandled,
 		}
