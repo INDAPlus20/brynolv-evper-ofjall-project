@@ -799,20 +799,24 @@ impl Driver {
 		} else if new_cluster_count < old_cluster_count {
 			// Truncate cluster chain
 
-			let mut last_cluster = file_info.first_cluster;
-			for i in 0..new_cluster_count - 1 {
-				last_cluster = self.fat.get_next_cluster(last_cluster).unwrap();
-			}
-			// last_cluster is now the last cluster in the new chain
-			let mut current_cluster = self.fat.get_next_cluster(last_cluster).unwrap();
-			self.fat.set_next_cluster(last_cluster, None).unwrap();
-			// current_cluster is the first cluster to be removed
+			if new_cluster_count > 0 {
+				let mut last_cluster = file_info.first_cluster;
+				for i in 0..new_cluster_count - 1 {
+					last_cluster = self.fat.get_next_cluster(last_cluster).unwrap();
+				}
+				// last_cluster is now the last cluster in the new chain
+				let mut current_cluster = self.fat.get_next_cluster(last_cluster).unwrap();
+				self.fat.set_next_cluster(last_cluster, None).unwrap();
+				// current_cluster is the first cluster to be removed
 
-			while let Some(next_cluster) = self.fat.get_next_cluster(current_cluster) {
+				while let Some(next_cluster) = self.fat.get_next_cluster(current_cluster) {
+					self.fat.set_cluster_empty(current_cluster).unwrap();
+					current_cluster = next_cluster;
+				}
 				self.fat.set_cluster_empty(current_cluster).unwrap();
-				current_cluster = next_cluster;
+			} else {
+				file_info.first_cluster = 0;
 			}
-			self.fat.set_cluster_empty(current_cluster).unwrap();
 		}
 
 		// Write clusters
@@ -821,25 +825,27 @@ impl Driver {
 		let first_data_sector = self.first_data_sector();
 		let mut written_cluster_count = 0;
 
-		loop {
-			let cluster_start_sector =
-				(current_cluster as usize - 2) * sectors_per_cluster + first_data_sector;
+		if new_cluster_count > 0 {
+			loop {
+				let cluster_start_sector =
+					(current_cluster as usize - 2) * sectors_per_cluster + first_data_sector;
 
-			for sector_offset in 0..self.header.sectors_per_cluster {
-				self.load_sector(cluster_start_sector + sector_offset);
+				for sector_offset in 0..self.header.sectors_per_cluster {
+					self.load_sector(cluster_start_sector + sector_offset);
 
-				let byte_offset = (written_cluster_count * sectors_per_cluster + sector_offset) * 512;
-				let rest_size = new_size.saturating_sub(byte_offset).min(512);
-				if rest_size > 0 {
-					self.buffer[0..rest_size].copy_from_slice(&data[byte_offset..byte_offset + rest_size]);
+					let byte_offset = (written_cluster_count * sectors_per_cluster + sector_offset) * 512;
+					let rest_size = new_size.saturating_sub(byte_offset).min(512);
+					if rest_size > 0 {
+						self.buffer[0..rest_size].copy_from_slice(&data[byte_offset..byte_offset + rest_size]);
+					}
 				}
-			}
 
-			match self.fat.get_next_cluster(current_cluster) {
-				Some(next_cluster) => current_cluster = next_cluster,
-				None => break,
+				match self.fat.get_next_cluster(current_cluster) {
+					Some(next_cluster) => current_cluster = next_cluster,
+					None => break,
+				}
+				written_cluster_count += 1;
 			}
-			written_cluster_count += 1;
 		}
 
 		file_info.size = new_size;
