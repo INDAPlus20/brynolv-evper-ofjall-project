@@ -349,7 +349,7 @@ impl Widget for SaveDialog {
 					}
 
 					// If user entered an invalid file path
-					if unsafe { harddisk::fat32::is_valid_file_path(&self.current_path).is_err() } {
+					if unsafe { !harddisk::fat32::is_valid_file_path(&self.current_path) } {
 						// Prompt user about invalid path
 						let message_box = MessageBox::new(
 							"Error".into(),

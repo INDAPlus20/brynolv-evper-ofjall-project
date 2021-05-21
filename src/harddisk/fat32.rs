@@ -645,9 +645,9 @@ impl Driver {
 		Err(FatError::PathNotFound)
 	}
 
-	unsafe fn is_valid_file_path(&mut self, path: &[u8]) -> Result<(), FatError> {
+	unsafe fn is_valid_file_path(&mut self, path: &[u8]) -> bool {
 		if path.len() == 0 {
-			return Err(FatError::PathNotFound);
+			return false;
 		}
 
 		let (mut dir_path, mut file_name) = path.split_last_2(&SEPARATOR_CHAR);
@@ -657,12 +657,22 @@ impl Driver {
 			core::mem::swap(&mut dir_path, &mut file_name);
 		}
 
-		let dir_result = self.get_directory_info(dir_path);
-		if file_name.len() == 0 || dir_result.is_err() {
-			return Err(FatError::PathNotFound);
+		// We only support 8.3 directory entries for now, so need to check the length of file_name and directories
+		let (bare_name, extension) = file_name.split_last_2(&b'.');
+		if bare_name.len() > 8 || extension.len() > 3 {
+			return false;
+		}
+		let mut start_index: usize = 0;
+		for (cur_index, c) in path.iter().enumerate() {
+			if *c == SEPARATOR_CHAR {
+				if path[start_index..cur_index].len() > 8 {
+					return false;
+				}
+				start_index = cur_index + 1;
+			}
 		}
 
-		Ok(())
+		true
 	}
 
 	/// Get information about file at `path`
@@ -1517,7 +1527,7 @@ pub unsafe fn get_file_info(path: Path) -> Result<FileInfo, FatError> {
 }
 
 /// Returns ok if path contains a valid file name and the directory path exists
-pub unsafe fn is_valid_file_path(path: Path) -> Result<(), FatError> {
+pub unsafe fn is_valid_file_path(path: Path) -> bool {
 	DRIVER.is_valid_file_path(path)
 }
 
