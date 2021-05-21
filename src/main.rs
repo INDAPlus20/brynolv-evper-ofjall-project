@@ -181,6 +181,6 @@ fn panic_handler(info: &PanicInfo) -> ! {
 }
 
 #[no_mangle]
-pub fn rust_oom() -> !  {
+pub fn rust_oom() -> ! {
 	panic!("Hopefully, this should never be called");
 }
