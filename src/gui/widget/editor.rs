@@ -680,7 +680,7 @@ impl Widget for Editor {
 						}
 					}
 					if self.current_file_dir_path.len() > 0 {
-						self.current_file_name = path[self.current_file_dir_path.len()+1..].to_vec();
+						self.current_file_name = path[self.current_file_dir_path.len() + 1..].to_vec();
 					} else {
 						self.current_file_name.clone_from(path);
 					}
@@ -719,7 +719,7 @@ impl Widget for Editor {
 						}
 					}
 					if self.current_file_dir_path.len() > 0 {
-						self.current_file_name = path[self.current_file_dir_path.len()+1..].to_vec();
+						self.current_file_name = path[self.current_file_dir_path.len() + 1..].to_vec();
 					} else {
 						self.current_file_name.clone_from(path);
 					}
