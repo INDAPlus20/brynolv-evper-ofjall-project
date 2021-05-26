@@ -29,8 +29,9 @@ pub struct Editor {
 	top_row_char_index: usize,
 	dirty: bool,
 	invalidated: Rect,
-	// Holds path for current open file
-	current_file_path: Vec<u8>,
+	// Holds paths for current open file
+	current_file_dir_path: Vec<u8>,
+	current_file_name: Vec<u8>,
 }
 
 impl Editor {
@@ -46,7 +47,8 @@ impl Editor {
 			top_row_char_index: 0,
 			dirty: false,
 			invalidated: Rect::new(0, 0, 0, 0),
-			current_file_path: Vec::new(),
+			current_file_dir_path: Vec::new(),
+			current_file_name: Vec::new(),
 		}
 	}
 
@@ -617,8 +619,11 @@ impl Widget for Editor {
 					modifiers: Modifiers::CTRL,
 					..
 				} => {
-					let save_file =
-						SaveDialog::new(self.current_file_path.clone(), "editor:save_file".into());
+					let save_file = SaveDialog::new(
+						self.current_file_name.clone(),
+						self.current_file_dir_path.clone(),
+						"editor:save_file".into(),
+					);
 					unsafe {
 						display::add_widget(save_file);
 					}
@@ -664,7 +669,21 @@ impl Widget for Editor {
 					self.scroll = 0;
 					self.top_row_char_index = 0;
 
-					self.current_file_path.clone_from(path);
+					// Separate path into dir and filename parts
+					self.current_file_dir_path.clone_from(path);
+					// Removes end of string until a directory separator is found
+					// Not beautiful, but it works
+					loop {
+						let c = self.current_file_dir_path.pop();
+						if c.is_none() || c.unwrap() == harddisk::fat32::SEPARATOR_CHAR {
+							break;
+						}
+					}
+					if self.current_file_dir_path.len() > 0 {
+						self.current_file_name = path[self.current_file_dir_path.len() + 1..].to_vec();
+					} else {
+						self.current_file_name.clone_from(path);
+					}
 
 					self.invalidate(self.used_area());
 
@@ -689,7 +708,21 @@ impl Widget for Editor {
 						harddisk::fat32::write_file(path, &byte_buffer).unwrap();
 					}
 
-					self.current_file_path.clone_from(path);
+					// Separate path into dir and filename parts
+					self.current_file_dir_path.clone_from(path);
+					// Removes end of string until a directory separator is found
+					// Not beautiful, but it works
+					loop {
+						let c = self.current_file_dir_path.pop();
+						if c.is_none() || c.unwrap() == harddisk::fat32::SEPARATOR_CHAR {
+							break;
+						}
+					}
+					if self.current_file_dir_path.len() > 0 {
+						self.current_file_name = path[self.current_file_dir_path.len() + 1..].to_vec();
+					} else {
+						self.current_file_name.clone_from(path);
+					}
 
 					// Invalidate used area, to clean up any debug print from writing file to disk
 					self.invalidate(self.used_area());

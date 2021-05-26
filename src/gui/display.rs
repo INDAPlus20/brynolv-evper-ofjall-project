@@ -501,7 +501,7 @@ static mut DISPLAY: Display = unsafe { Display::uinitialized() };
 /// The engine of the GUI system.
 struct Display {
 	framebuffer: FrameBuffer,
-	widgets: Vec<Box<dyn Widget>>,
+	widgets: Vec<Option<Box<dyn Widget>>>,
 }
 
 impl Display {
@@ -529,7 +529,7 @@ impl Display {
 		widget.set_size(res);
 		let area = widget.used_area();
 		widget.invalidate(area);
-		self.widgets.push(widget);
+		self.widgets.push(Some(widget));
 		self.check_redraw();
 	}
 
@@ -538,17 +538,50 @@ impl Display {
 	/// The event is passed through the widgets from the top down, and will continue to
 	/// be passed through until a widget responds with a response other than `Response::NotHandled`.
 	pub fn send_event(&mut self, event: Event) {
-		for (i, widget) in self.widgets.iter_mut().enumerate().rev() {
-			match widget.on_event(event.clone()) {
-				super::widget::Response::NotHandled => {}
-				super::widget::Response::Nothing => break,
-				super::widget::Response::RemoveMe => {
-					let area = widget.used_area();
-					self.widgets.remove(i);
-					// As we removed a widget, the widget below might need to redraw (if there is one).
-					for widget_index in 0..i {
-						self.widgets[widget_index].invalidate(area);
+		for (i, w) in self.widgets.iter_mut().enumerate().rev() {
+			match w {
+				Some(widget) => {
+					//let widget = w.unwrap()
+					match widget.on_event(event.clone()) {
+						super::widget::Response::NotHandled => {}
+						super::widget::Response::Nothing => break,
+						super::widget::Response::RemoveMe => {
+							let area = widget.used_area();
+							// Remove widget but keep index valid, index is properly removed further down
+							// This is to deal when multiple widgets are removed during a send_event and the one further down is removed before
+							// which caused the index to go out of range in certain situations
+							self.widgets[i] = None;
+							// As we removed a widget, the widget below might need to redraw (if there is one).
+							for widget_index in 0..i {
+								let w = &mut self.widgets[widget_index];
+								match w {
+									Some(widget) => {
+										widget.invalidate(area);
+									}
+									_ => {}
+								}
+							}
+							break;
+						}
 					}
+				}
+				_ => {}
+			}
+		}
+
+		// Remove all indicies at the back that contain None
+		loop {
+			let w = self.widgets.last();
+			match w {
+				Some(option_widget) => match option_widget {
+					Some(_) => {
+						break;
+					}
+					_ => {
+						self.widgets.pop();
+					}
+				},
+				_ => {
 					break;
 				}
 			}
@@ -559,26 +592,44 @@ impl Display {
 
 	/// Redraws if any widget is marked dirty.
 	pub fn check_redraw(&mut self) {
-		if self.widgets.iter().any(|w| w.dirty()) {
-			self.draw();
+		for w in self.widgets.iter() {
+			match w {
+				Some(widget) => {
+					if widget.dirty() {
+						self.draw();
+						break;
+					}
+				}
+				_ => {}
+			}
 		}
 	}
 
 	/// Draw the widgets to the screen.
 	fn draw(&mut self) {
-		for i in 0..self.widgets.len() {
-			if self.widgets[i].dirty() {
-				let window = (&mut self.framebuffer).into();
-				self.widgets[i].draw(window);
+		for w in &mut self.widgets {
+			match w {
+				Some(widget) => {
+					if widget.dirty() {
+						let window = (&mut self.framebuffer).into();
+						widget.draw(window);
+					}
+				}
+				_ => {}
 			}
 		}
 	}
 
 	/// Invalidates all widgets and starts drawing them.
 	pub fn force_redraw(&mut self) {
-		for widget in &mut self.widgets {
-			let area = widget.used_area();
-			widget.invalidate(area);
+		for w in &mut self.widgets {
+			match w {
+				Some(widget) => {
+					let area = widget.used_area();
+					widget.invalidate(area);
+				}
+				_ => {}
+			}
 		}
 		self.clear();
 		self.draw()
