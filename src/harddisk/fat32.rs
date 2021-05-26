@@ -9,7 +9,7 @@ use super::partitions::Partition;
 use crate::svec::SVec;
 
 /// The char used for directory seperation (standard is '/', but we are having fun here)
-const SEPARATOR_CHAR: u8 = b'>';
+pub const SEPARATOR_CHAR: u8 = b'>';
 
 #[derive(Clone, Debug)]
 pub struct FileInfo {
