@@ -665,7 +665,8 @@ impl Driver {
 		let mut start_index: usize = 0;
 		for (cur_index, c) in path.iter().enumerate() {
 			if *c == SEPARATOR_CHAR {
-				if path[start_index..cur_index].len() > 8 {
+				let dir_name_length = path[start_index..cur_index].len();
+				if dir_name_length == 0 || dir_name_length > 8 {
 					return false;
 				}
 				start_index = cur_index + 1;
