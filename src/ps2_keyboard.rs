@@ -442,6 +442,7 @@ enum DriverState {
 
 /// A Key Event from the keyboard
 /// Never a release event, those are handled internally by the driver.
+#[derive(Clone)]
 pub struct KeyEvent {
 	/// The `KeyCode` of the event
 	pub keycode: KeyCode,
@@ -598,6 +599,7 @@ impl KeyCode {
 	}
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum KeyState {
 	Pressed,
 	Held,
@@ -613,35 +615,35 @@ pub struct Modifiers {
 }
 
 impl Modifiers {
-	const ALT: Self = Self {
+	pub const ALT: Self = Self {
 		shift: false,
 		alt: true,
 		altgr: false,
 		ctrl: false,
 		meta: false,
 	};
-	const ALTGR: Self = Self {
+	pub const ALTGR: Self = Self {
 		shift: false,
 		alt: false,
 		altgr: true,
 		ctrl: false,
 		meta: false,
 	};
-	const CTRL: Self = Self {
+	pub const CTRL: Self = Self {
 		shift: false,
 		alt: false,
 		altgr: false,
 		ctrl: true,
 		meta: false,
 	};
-	const META: Self = Self {
+	pub const META: Self = Self {
 		shift: false,
 		alt: false,
 		altgr: false,
 		ctrl: false,
 		meta: true,
 	};
-	const NONE: Self = Self {
+	pub const NONE: Self = Self {
 		shift: false,
 		alt: false,
 		altgr: false,

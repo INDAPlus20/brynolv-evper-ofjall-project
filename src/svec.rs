@@ -1,3 +1,4 @@
+use alloc::{vec, vec::Vec};
 use core::{
 	convert::TryFrom,
 	fmt::{Debug, Display},
@@ -210,5 +211,16 @@ impl<const N: usize> Display for SVec<u8, N> {
 	/// Print `u8 SVec`s as `&str`
 	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
 		write!(f, "{}", self.to_str())
+	}
+}
+
+impl<T, const N: usize> From<SVec<T, N>> for Vec<T> {
+	fn from(svec: SVec<T, N>) -> Self {
+		let mut ret = Vec::with_capacity(svec.length);
+		for i in 0..svec.length {
+			ret.push(unsafe { svec.inner[i].assume_init_read() });
+		}
+		core::mem::forget(svec);
+		ret
 	}
 }

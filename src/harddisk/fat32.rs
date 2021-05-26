@@ -9,7 +9,7 @@ use super::partitions::Partition;
 use crate::svec::SVec;
 
 /// The char used for directory seperation (standard is '/', but we are having fun here)
-const SEPARATOR_CHAR: u8 = b'>';
+pub const SEPARATOR_CHAR: u8 = b'>';
 
 #[derive(Clone, Debug)]
 pub struct FileInfo {
@@ -597,10 +597,10 @@ impl Driver {
 
 	/// Returns information about the file at `path`
 	unsafe fn get_entry_info(&mut self, path: &[u8]) -> Result<FileInfo, FatError> {
-		println!(
+		/*println!(
 			"Getting entry info of '{}'",
 			core::str::from_utf8(path).unwrap()
-		);
+		);*/
 		if path.len() == 0 {
 			return Ok(FileInfo {
 				name: SVec::new(),
@@ -641,8 +641,39 @@ impl Driver {
 			}
 		}
 
-		println!("Path '{}' not found", core::str::from_utf8(path).unwrap());
+		//println!("Path '{}' not found", core::str::from_utf8(path).unwrap());
 		Err(FatError::PathNotFound)
+	}
+
+	unsafe fn is_valid_file_path(&mut self, path: &[u8]) -> bool {
+		if path.len() == 0 {
+			return false;
+		}
+
+		let (mut dir_path, mut file_name) = path.split_last_2(&SEPARATOR_CHAR);
+		// If user entered a path without separators it will end up in dir_path
+		// Assuming user meant a file in root directory so switch them around
+		if file_name.len() == 0 {
+			core::mem::swap(&mut dir_path, &mut file_name);
+		}
+
+		// We only support 8.3 directory entries for now, so need to check the length of file_name and directories
+		let (bare_name, extension) = file_name.split_last_2(&b'.');
+		if bare_name.len() > 8 || extension.len() > 3 {
+			return false;
+		}
+		let mut start_index: usize = 0;
+		for (cur_index, c) in path.iter().enumerate() {
+			if *c == SEPARATOR_CHAR {
+				let dir_name_length = path[start_index..cur_index].len();
+				if dir_name_length == 0 || dir_name_length > 8 {
+					return false;
+				}
+				start_index = cur_index + 1;
+			}
+		}
+
+		true
 	}
 
 	/// Get information about file at `path`
@@ -679,9 +710,9 @@ impl Driver {
 		}
 
 		if let Err(FatError::PathNotFound) = self.get_directory_info(dir_path) {
-			println!("Creating directory");
+			//println!("Creating directory");
 			self.create_directory(dir_path)?;
-			println!("Created directory");
+			//println!("Created directory");
 		}
 
 		let mut name = SVec::<u8, 8>::new();
@@ -740,7 +771,7 @@ impl Driver {
 			_ => unreachable!(),
 		};
 
-		println!("File info: {:#?}", file_info);
+		//println!("File info: {:#?}", file_info);
 
 		let old_size = file_info.size;
 		let new_size = data.len();
@@ -918,11 +949,11 @@ impl Driver {
 		'path_parts_loop: for i in 0..separator_indices.len() - 1 {
 			let parent = &path[..separator_indices[i]];
 			let dir_to_create = &path[separator_indices[i] + 1.min(i)..separator_indices[i + 1]];
-			println!(
+			/*println!(
 				"Creating dir {} in {}",
 				core::str::from_utf8(dir_to_create).unwrap(),
 				core::str::from_utf8(parent).unwrap()
-			);
+			);*/
 
 			for entry_slice in EntryIterator::new(self, parent)? {
 				let dir_entry: DirectoryEntry = entry_slice[..].try_into().unwrap();
@@ -933,10 +964,10 @@ impl Driver {
 						first_cluster,
 						..
 					} if file_name.get_slice() == dir_to_create => {
-						println!(
+						/*println!(
 							"Found existing dir {}",
 							core::str::from_utf8(dir_to_create).unwrap()
-						);
+						);*/
 						parent_dir_cluster = first_cluster;
 						latest_file_info = FileInfo {
 							name: file_name,
@@ -955,10 +986,10 @@ impl Driver {
 
 				match dir_entry {
 					DirectoryEntry::Empty | DirectoryEntry::Unused => {
-						println!(
+						/*println!(
 							"Creating dir {}",
 							core::str::from_utf8(dir_to_create).unwrap()
-						);
+						);*/
 						let entry_slice_ptr = entry_slice.as_mut_ptr();
 						let old_sector = self.current_loaded_sector;
 
@@ -1008,7 +1039,7 @@ impl Driver {
 						let temp: [u8; 32] = parent_directory_entry.into();
 						self.buffer[32..64].copy_from_slice(&temp[..]);
 
-						println!("buffer: {:x?}", self.buffer);
+						//println!("buffer: {:x?}", self.buffer);
 
 						self.load_sector(old_sector);
 
@@ -1163,7 +1194,7 @@ impl<'a> Iterator for EntryCreatingIterator<'a> {
 							self.next_cluster = match self.inner.fat.get_next_cluster(current_cluster) {
 								cluster @ Some(_) => cluster,
 								None => {
-									println!("Allocating new cluster");
+									//println!("Allocating new cluster");
 									let new_cluster = self.inner.fat.find_empty_cluster(2)?;
 									for sector_offset in 0..self.inner.header.sectors_per_cluster {
 										let cluster_sector = (new_cluster as usize - 2)
@@ -1492,8 +1523,13 @@ pub unsafe fn read_file(path: Path, buffer: &mut [u8]) -> Result<usize, FatError
 }
 
 /// Get the `FileInfo` for the file at `path`
-pub unsafe fn get_file_info(path: Path) -> FileInfo {
-	DRIVER.get_entry_info(path).unwrap()
+pub unsafe fn get_file_info(path: Path) -> Result<FileInfo, FatError> {
+	DRIVER.get_entry_info(path)
+}
+
+/// Returns ok if path contains a valid file name and the directory path exists
+pub unsafe fn is_valid_file_path(path: Path) -> bool {
+	DRIVER.is_valid_file_path(path)
 }
 
 /// Lists all entries in `directory_path`

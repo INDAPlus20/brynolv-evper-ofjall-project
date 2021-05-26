@@ -6,9 +6,15 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_extra)]
 #![feature(maybe_uninit_ref)]
+#![feature(const_trait_impl)]
+#![feature(const_mut_refs)]
+#![feature(const_fn_trait_bound)]
+#![feature(const_option)]
+#![feature(option_result_unwrap_unchecked)]
+#![feature(associated_type_defaults)]
 #![feature(asm)]
-#![feature(const_maybe_uninit_assume_init)]
 #![feature(const_generics)]
+#![feature(const_maybe_uninit_assume_init)]
 #![feature(const_evaluatable_checked)]
 #![feature(default_alloc_error_handler)]
 
@@ -19,6 +25,7 @@ extern crate rlibc;
 mod printer;
 mod allocator;
 mod gdt;
+mod gui;
 mod harddisk;
 mod idt;
 mod pic;
@@ -26,101 +33,38 @@ mod ps2;
 mod ps2_keyboard;
 mod svec;
 
-use alloc::format;
+use alloc::{boxed::Box, string::String};
 use core::{
 	panic::PanicInfo,
 	sync::atomic::{AtomicBool, Ordering},
 };
 
 use bootloader::BootInfo;
+use gui::widget::{
+	message_box::{ButtonTypes, MessageBox},
+	Event, Widget,
+};
 use harddisk::fat32::FatError;
+use ps2_keyboard::KeyState;
 
-use crate::{ps2_keyboard::KeyCode, svec::SVec};
+use crate::{
+	gui::{
+		display::{Color, Point},
+		widget::container::Container,
+	},
+	ps2_keyboard::{KeyCode, KeyEvent, Modifiers},
+	svec::SVec,
+};
 
 #[no_mangle]
 pub extern "C" fn _start(boot_info: &'static BootInfo) -> ! {
 	// No function call may precede this one, or else undefined behaviour may be invoked.
 	initialize(boot_info);
 
-	println!("Hello, World!");
-
-	let mut path_buffer: SVec<u8, 128> = SVec::new();
-
 	loop {
 		let event = ps2_keyboard::get_key_event();
-		if event.keycode == KeyCode::Enter {
-			use harddisk::fat32::SplitLast;
-			println!();
-			match path_buffer.get_slice().split_last_2(&b' ') {
-				(b"read", path) => match unsafe { harddisk::fat32::list_entries(path) } {
-					Ok(e) => {
-						for e in e {
-							println!(
-								"{:12}  {:3}  {}",
-								e.name.to_str(),
-								if e.is_directory { "DIR" } else { "   " },
-								e.size
-							);
-						}
-					}
-					Err(FatError::IsntDirectory) => {
-						let mut buffer = [0; 1024 * 2];
-						match unsafe { harddisk::fat32::read_file(path, &mut buffer) } {
-							Ok(v) => {
-								println!("{}", core::str::from_utf8(&buffer[0..v]).unwrap());
-							}
-							Err(e) => println!("Error: {:#?}", e),
-						}
-					}
-					Err(e) => {
-						println!("Error: {:#?}", e)
-					}
-				},
-				(b"create", path) => match unsafe { harddisk::fat32::create_empty_file(path) } {
-					Ok(info) => println!("{:#?}", info),
-					Err(e) => println!("Error: {:#?}", e),
-				},
-				(b"write", path) => {
-					let data_to_write = include_bytes!("../file_to_write.txt");
-					match unsafe { harddisk::fat32::write_file(path, data_to_write) } {
-						Ok(_) => {}
-						Err(e) => println!("Error: {:#?}", e),
-					}
-				}
-				(b"test", _) => {
-					for i in 0..32 {
-						println!("Creating file {}", i);
-						match unsafe {
-							harddisk::fat32::write_file(
-								format!("EFI>{}", i).as_bytes(),
-								format!("File number {}\n", i).as_bytes(),
-							)
-						} {
-							Ok(_) => {}
-							Err(e) => println!("Error: {:#?}", e),
-						}
-					}
-				}
-				(other, _) => println!(
-					"Unrecognized command '{}'",
-					core::str::from_utf8(other).unwrap()
-				),
-			}
-			while path_buffer.len() > 0 {
-				path_buffer.pop();
-			}
-		} else if let Some(char) = event.char {
-			let mut b = [0; 4];
-			let s = char.encode_utf8(&mut b);
-			for b in s.bytes() {
-				path_buffer.push(b);
-			}
-			print!("{}", s);
-		} else if event.keycode == KeyCode::Backspace {
-			if path_buffer.len() > 0 {
-				path_buffer.pop();
-			}
-			print!("\x08");
+		unsafe {
+			gui::display::send_event(Event::KeyEvent(event));
 		}
 	}
 }
@@ -155,6 +99,8 @@ fn initialize(boot_info: &BootInfo) {
 
 			allocator::initialize(&*boot_info.memory_regions);
 
+			gui::initialize(core::ptr::read(boot_info.framebuffer.as_ref().unwrap()));
+
 			pic::initialize();
 			// Enabling interrupts must happen AFTER both the GDT and the IDT have been initialized
 			x86_64::instructions::interrupts::enable();
@@ -168,15 +114,54 @@ fn initialize(boot_info: &BootInfo) {
 
 #[panic_handler]
 fn panic_handler(info: &PanicInfo) -> ! {
-	let loc = info.location().unwrap();
-	match info.message() {
-		Some(message) => {
-			println!("{}: Panic at '{}'", loc, message);
-		}
-		None => {
-			println!("{}: Panic", loc);
+	static mut ORIGINAL_MESSAGE: Option<String> = None;
+	unsafe {
+		if let Some(orig) = ORIGINAL_MESSAGE.take() {
+			println!("Panic while trying to pretty_print other panic");
+
+			let loc = info.location().unwrap();
+			match info.message() {
+				Some(message) => {
+					println!("{}: Panic at '{}'", loc, message);
+				}
+				None => {
+					println!("{}: Panic", loc);
+				}
+			}
+			println!("Original panic:");
+			println!("{}", orig);
+
+			loop {}
 		}
 	}
+	let mut msg = String::new();
+	let loc = info.location().unwrap();
+	use core::fmt::Write;
+	match info.message() {
+		Some(message) => {
+			write!(msg, "{}: Panic at '{}'", loc, message).unwrap();
+		}
+		None => {
+			write!(msg, "{}: Panic", loc).unwrap();
+		}
+	}
+	unsafe {
+		ORIGINAL_MESSAGE = Some(msg.clone());
+	}
+
+	let mut message_box = MessageBox::new("Panic!".into(), msg, ButtonTypes::None, "".into());
+
+	message_box.title_bar_color.red += 0x30;
+	message_box.background_color.red += 0x20;
+
+	unsafe {
+		gui::display::add_widget(message_box);
+	}
+
+	unsafe {
+		gui::display::check_redraw();
+	}
+
 	loop {}
 }
 
