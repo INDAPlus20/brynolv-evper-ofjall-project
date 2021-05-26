@@ -679,9 +679,11 @@ impl Widget for Editor {
 							break;
 						}
 					}
-					self
-						.current_file_name
-						.clone_from_slice(&path[self.current_file_dir_path.len() + 1..path.len()]);
+					if self.current_file_dir_path.len() > 0 {
+						self.current_file_name = path[self.current_file_dir_path.len()+1..].to_vec();
+					} else {
+						self.current_file_name.clone_from(path);
+					}
 
 					self.invalidate(self.used_area());
 
@@ -717,9 +719,7 @@ impl Widget for Editor {
 						}
 					}
 					if self.current_file_dir_path.len() > 0 {
-						self
-							.current_file_name
-							.clone_from_slice(&path[self.current_file_dir_path.len() + 1..path.len()]);
+						self.current_file_name = path[self.current_file_dir_path.len()+1..].to_vec();
 					} else {
 						self.current_file_name.clone_from(path);
 					}
